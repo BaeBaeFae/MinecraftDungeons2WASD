@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 import json
 from pathlib import Path
+from errors import TransientGameState
 
 
 @dataclass
@@ -52,7 +53,7 @@ class Journal:
 
     def set(self, address, value, guard, key=False, original=None):
         if not guard():
-            raise RuntimeError('Object changed before write; update cancelled.')
+            raise TransientGameState('Object changed before write; update cancelled.')
         current = self.p.read(address, len(value))
         entry = self.entries.get(address)
         if entry and not entry.guard():
@@ -69,9 +70,9 @@ class Journal:
             self.save()
         # Clear FKey's lazy detail cache; never borrow shared ownership from another key.
         self.p.write(address, value + bytes(16) if key else value)
+        entry.last = value  # Preserve ownership if the verification read crosses a transition.
         if self.p.read(address, len(value)) != value:
-            raise RuntimeError('Game data changed during verification.')
-        entry.last = value
+            raise TransientGameState('Game data changed during verification.')
 
     def restore_where(self, predicate=lambda entry: True):
         restored = skipped = 0

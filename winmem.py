@@ -5,6 +5,7 @@ import hashlib
 from pathlib import Path
 import struct
 from model import BUILD_HASH
+from errors import TransientGameState, ProcessSelectionError
 
 k = c.WinDLL('kernel32', use_last_error=True)
 EXE = 'Dungeons-Win64-Shipping.exe'
@@ -53,34 +54,49 @@ def snapshot(flags, pid=0):
     return value
 
 
-def find_game():
+def list_processes():
     matches = []
     snap = snapshot(2)
     entry = ProcessEntry(size=c.sizeof(ProcessEntry))
     try:
         ok = k.Process32FirstW(snap, c.byref(entry))
         while ok:
-            if entry.name.lower() == EXE.lower():
-                matches.append(entry.pid)
+            if entry.pid:
+                matches.append({'pid': entry.pid, 'name': entry.name})
             ok = k.Process32NextW(snap, c.byref(entry))
     finally:
         k.CloseHandle(snap)
+    return sorted(matches, key=lambda item: (item['name'].lower(), item['pid']))
+
+
+def select_process(processes, pid=None):
+    matches = [item for item in processes if item['pid'] == pid] if pid else [
+        item for item in processes if item['name'].lower() == EXE.lower()]
     if not matches:
         return None
     if len(matches) != 1:
-        raise RuntimeError('Keep only one copy of the game running.')
-    pid = matches[0]
+        raise ProcessSelectionError('Multiple game processes found. Select the game process in Setup.')
+    return matches[0]
+
+
+def find_game(pid=None):
+    selected = select_process(list_processes(), pid)
+    if selected is None:
+        if pid:
+            raise ProcessSelectionError('The selected process has exited. Refresh the list and select the game again, or choose Auto detect.')
+        return None
+    pid = selected['pid']
     snap = snapshot(0x18, pid)
     entry = ModuleEntry(size=c.sizeof(ModuleEntry))
     try:
         ok = k.Module32FirstW(snap, c.byref(entry))
         while ok:
-            if entry.name.lower() == EXE.lower():
+            if entry.name.lower() == selected['name'].lower():
                 return pid, entry.base, Path(entry.path)
             ok = k.Module32NextW(snap, c.byref(entry))
     finally:
         k.CloseHandle(snap)
-    raise RuntimeError('Game module is still loading. Try again at the title screen.')
+    raise TransientGameState('Selected executable module is still loading. Retrying automatically.')
 
 
 class Process:
@@ -104,12 +120,15 @@ class Process:
             raise
 
     def read(self, address, size):
-        if not 0 < address < 0x7fffffffffff or not 0 <= size <= 16 * 1024 * 1024:
+        if not 0 <= size <= 16 * 1024 * 1024:
             raise RuntimeError('Invalid memory range.')
+        if not 0 < address < 0x7fffffffffff:
+            raise TransientGameState('Game object pointer is not available during this transition.')
         buf, count = c.create_string_buffer(size), c.c_size_t()
-        checked(k.ReadProcessMemory(self.handle, address, buf, size, c.byref(count)), 'Cannot read current game state')
+        if not k.ReadProcessMemory(self.handle, address, buf, size, c.byref(count)):
+            raise TransientGameState(f'Cannot read current game state (Windows error {c.get_last_error()}).')
         if count.value != size:
-            raise RuntimeError('Game state changed during read.')
+            raise TransientGameState('Game state changed during read.')
         return buf.raw
 
     def write(self, address, data):

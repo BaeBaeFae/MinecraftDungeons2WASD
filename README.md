@@ -1,5 +1,17 @@
 # Minecraft Dungeons II WASD Companion
 
+## 0.1.1 beta test candidate
+
+This branch adds recovery and diagnostics for the first field reports. The published 0.1 beta remains available below; this candidate is not a claim of validated multiplayer support.
+
+- Transient game-memory reads and stale objects now retry without terminating the worker. Cleanup/refresh failures are handled inside recovery. Already applied settings resume automatically when the current objects become valid; title is requested only for missing native movement mappings.
+- Setup includes **Game process → Refresh**, a process selector, and **Show all processes**. Select the actual game executable, not its launcher. Manual selection still checks the executable hash and runtime signature. It cannot make an unsupported storefront/build compatible. Selections are session-only and cleared when an attached game exits.
+- Title/gameplay detection checks known controller class ancestry, including subclasses. An unknown controller is reported explicitly instead of being treated indefinitely as ordinary loading. We still need the affected user's exact notice, storefront, and diagnostics to confirm that report's cause.
+- **Controls → Native interaction mode (revive workaround)** restores original Root/primary-click and click-approach behavior while leaving WASD and turning enabled. Enable it and Apply settings before attempting a revive. Click-to-move returns, and Jump Slam assist is suspended in this mode. Disable it and Apply to return to your saved click preferences. This workaround has not been verified in co-op; dodge behavior is unchanged.
+- Recoverable and fatal failures save `%LOCALAPPDATA%\DungeonsInputStudio\diagnostics\last-session.json` automatically. **Save diagnostics** includes recent errors/transitions, retry counts, build information, controller class, input tree, relevant binding names, and the last attached snapshot even after a fatal failure. Reports are bounded and redact paths, email addresses, and raw addresses; no process list or memory dump is exported. Nothing is uploaded automatically. Review reports before sharing.
+
+For the current reports, include whether the player was host or guest, matchmaking or invited, the map/boss transition, whether native interaction mode was enabled, and whether Apply/retry worked without returning to title. Multiplayer remains outside the validated compatibility scope.
+
 **Dungeons Input Studio · 0.1 beta** is a portable Windows companion for native keyboard movement, attack-in-place, configurable turning, and an optional Jump Slam assist.
 
 [Download 0.1 beta](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.0-beta) · [All releases](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases) · [Report a problem](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/issues)
@@ -141,7 +153,7 @@ Use Windows x64 and Python 3.12 with Tkinter. Runtime source uses the standard l
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-build.txt
-python -m unittest -v test_app test_slam test_backup
+python -m unittest -v test_app test_slam test_backup test_recovery
 python app.py --ui-smoke ui-smoke.json
 python -m PyInstaller --noconfirm --clean --onedir --windowed --noupx --name DungeonsInputStudio app.py
 ```
@@ -154,7 +166,8 @@ Distribute the **entire** `dist/DungeonsInputStudio` folder with README, LICENSE
 
 ### Source overview
 
-- `app.py`: GUI and worker; live status and diagnostic notices are separate.
+- `app.py`, `worker.py`: GUI and recoverable connection worker; live status and diagnostic notices are separate.
+- `diagnostics.py`, `errors.py`: bounded redacted reports and transient error classification.
 - `guidance.py`: setup/recovery states.
 - `engine.py`, `ue.py`, `winmem.py`: exact-build adapter and validated process-data access.
 - `journal.py`, `control_backup.py`: guarded undo and named binding recovery.

@@ -24,6 +24,10 @@ def guide(stage, detail='', checks=(), configured=False):
                          'Launch Minecraft Dungeons II and stay at its title screen. We will connect automatically.', 'waiting', 0, False, False, True),
         'connecting': ('Connecting to the game…', 'Checking the game version and finding its controls. This can take a few seconds.',
                        'Stay at the title screen while this check completes.', 'waiting', 1, False, False, True),
+        'select_process': ('Select the game process', 'Automatic detection needs your help.',
+                           'Restore originals if connected, then refresh the Game process list on Setup, select the game, and click Start companion.', 'warning', 0, True, False, False),
+        'unknown_screen': ('Connected — screen not recognized yet', 'The executable is supported, but its controller is not a recognized title or gameplay controller.',
+                           'Wait for loading to finish. If you are already at title, save diagnostics and report your storefront and exact notice. Do not keep restarting blindly.', 'warning', 1, False, False, True),
         'return_title': ('Return to the title screen', 'The current character is missing the native movement mappings needed for keyboard movement.',
                          'Return to the title screen. When it is detected, click Apply settings here before loading your character.', 'warning', 0, False, False, True),
         'resume': ('Ready to resume — stay in your game', 'All four native movement mappings are already loaded for this character.',
@@ -45,7 +49,7 @@ def guide(stage, detail='', checks=(), configured=False):
         'assist_warning': ('Movement ready — Jump Slam assist needs attention', 'The other controls remain available.',
                            'Check the Jump Slam binding in Controls and in the game, then Apply settings. You can also switch the assist off.', 'warning', 4, False, True, True),
         'recovering': ('Controls are not ready yet', 'The companion cannot currently verify the game’s input state.',
-                       'If a screen is loading, wait. Otherwise return to title, click Apply settings, and reload your character.', 'warning', 3 if configured else 1, False, configured, True),
+                       'The companion is retrying automatically. Stay in gameplay if it recovers. If this persists, save diagnostics; return to title only if movement mappings are reported missing.', 'warning', 3 if configured else 1, False, configured, True),
         'stopped': ('Companion stopped', 'This app is no longer updating the game’s controls.',
                     'Click Start companion, then Apply settings. Stay in gameplay if the mappings are ready; return to title only when prompted.', 'info', 0, True, False, False),
         'restore_warning': ('Some changes could not be restored', 'The game state changed while the companion was stopping.',
@@ -53,7 +57,7 @@ def guide(stage, detail='', checks=(), configured=False):
         'unsupported': ('This game version is not supported', 'The companion refused to modify an unrecognized game build.',
                         'Use a companion release that supports your installed game version. Your game was not patched.', 'error', 1, True, False, False),
         'error': ('Connection stopped — action needed', 'The companion encountered an error and stopped updating controls.',
-                  'Return to title and click Retry connection. If this repeats, save diagnostics from Setup & diagnostics.', 'error', 1, True, False, False),
+                  'Click Retry connection. Save diagnostics if it repeats; return to title only when the app reports missing movement mappings.', 'error', 1, True, False, False),
     }
     values = catalog[stage]
     title, description, next_action, tone, progress, start, apply, stop = values

@@ -11,7 +11,7 @@ class Engine:
     FLAG = 0xC068610
 
     def __init__(self, process, settings):
-        self.p, self.settings = process, settings.validate()
+        self.p, self.settings = process, settings.validate().effective()
         self.u = UE(process)
         self.journal = Journal(process)
         self.u.refresh()
@@ -187,12 +187,13 @@ class Engine:
             self.local = self.u.one('DungeonsLocalPlayer')
             self.local_guard = self.u.guard(self.local)
         pc = self.u.u64(self.local+48)
-        name = self.u.name(pc)
-        if name.startswith('BP_MenuPlayerController_C'):
+        if not pc:
+            return 'loading'
+        if self.u.is_a(pc, 'BP_MenuPlayerController_C'):
             return 'title'
-        if name.startswith('BP_GameplayPlayerController_C') and self.u.u64(pc+0x2e8):
-            return 'gameplay'
-        return 'loading'
+        if self.u.is_a(pc, 'BP_GameplayPlayerController_C'):
+            return 'gameplay' if self.u.u64(pc+0x2e8) else 'loading'
+        return 'unknown_screen'
 
     def configure(self, settings):
         settings.validate()
@@ -200,7 +201,7 @@ class Engine:
         self.slam.error = self.slam_problem = ''
         self.journal.restore_where()
         self.restore_saved_bindings()
-        self.settings = settings
+        self.settings = settings.effective()
         self.move = self.pc = self.pawn = 0
         self.move_guard = lambda: False
         self.speed = 0.0
@@ -360,11 +361,14 @@ class Engine:
             raise StaleState('Stand-still profile row is not ready or is ambiguous.')
 
     def patch_tree(self, pc):
+        if not self.settings.block_ground_move and not self.settings.block_interaction_approach:
+            return  # Original click behavior needs no state-tree mutation or discovery.
         u = self.u
         component = u.u64(pc + u.offset(pc, 'StateTreeComponent'))
         tree = u.u64(component + u.offset(component, 'StateTreeRef'))
-        if u.name(tree) != 'ST_PlayerInput':
-            raise StaleState('Unexpected player input state tree.')
+        tree_name = u.name(tree)
+        if tree_name != 'ST_PlayerInput':
+            raise StaleState(f'Player input tree not ready: {tree_name}.')
         offset = u.offset(tree, 'States')
         pointer, count = u.array(tree+offset, 400)
         targets = set()
@@ -396,8 +400,8 @@ class Engine:
             self.local = u.one('DungeonsLocalPlayer')
             self.local_guard = u.guard(self.local)
         pc = u.u64(self.local+48)
-        name = u.name(pc)
-        gameplay = name.startswith('BP_GameplayPlayerController_C')
+        location = self.location()
+        gameplay = location == 'gameplay'
         pawn = u.u64(pc+0x2e8) if gameplay else 0
         if not gameplay or not pawn:
             self.flag(False)
@@ -407,7 +411,7 @@ class Engine:
             self.prepare_context()
         if not gameplay or not pawn:
             self.status = 'Ready at title — press Play. WASD feature flag is off here.'
-            self.phase = 'title' if name.startswith('BP_MenuPlayerController_C') else 'loading'
+            self.phase = location
             return
         # Context objects can be loaded/replaced during map transitions.
         if time.monotonic() - self.last_refresh > 5 and not u.objects('InputMappingContext'):
@@ -457,6 +461,8 @@ class Engine:
             'Click controls: selected behavior applied',
             f'Turning: {"smooth" if self.settings.smooth else "constant"}, {self.settings.maximum:g}°/s maximum',
         ]
+        if self.settings.native_interactions:
+            self.checks.append('Native interaction mode: original click behavior restored; revive workaround is unverified.')
         if self.settings.wasd and len(movement) < 4:
             self.status = 'Movement mappings incomplete — return to title and load your character once.'
             self.phase = 'needs_reload'
@@ -514,3 +520,22 @@ class Engine:
                 'jump_slam': {'binding': self.slam_key, 'problem': self.slam_problem,
                               'presses_sent': self.slam.count, 'held': self.slam.held},
                 'owned_changes': len(self.journal.entries), 'local_players': len(self.u.objects('DungeonsLocalPlayer'))}
+
+    def state_snapshot(self):
+        """Best effort, no raw pointers or player identities; works while loading."""
+        report = {'phase': self.phase, 'object_counts': {k: len(v) for k, v in self.u.index.items()}}
+        try:
+            pc = self.u.u64(self.local+48)
+            report['controller_class'] = self.u.class_name(pc) if pc else 'None'
+            report['location'] = self.location()
+            if report['location'] == 'gameplay':
+                report['movement_mappings_ready'] = self.can_resume()
+                component = self.u.u64(pc+self.u.offset(pc, 'StateTreeComponent'))
+                tree = self.u.u64(component+self.u.offset(component, 'StateTreeRef'))
+                report['input_tree'] = self.u.name(tree)
+                rows = self.profile_rows()
+                report['relevant_bindings'] = [{'action': n, 'key': self.u.name_at(m+0x48)} for n, m, g in rows
+                                               if n in ('Root', 'PrimaryAction', 'Interact', 'Revive', 'HeavyJumpAttack')]
+        except (RuntimeError, OSError) as exc:
+            report['snapshot_error'] = str(exc)
+        return report
