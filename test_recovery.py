@@ -15,6 +15,117 @@ from worker import Worker
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_repeated_travel_recovery_preserves_configuration_and_undo_owner(self):
+        # Drive the production lifecycle with a simulated clock, without a game.
+        world = {'location': 'gameplay', 'generation': 1, 'read_fault': False}
+        class Process:
+            pid, hash = 123, 'supported-hash'
+            def alive(self): return True
+        class Engine:
+            def __init__(self):
+                self.move, self.phase = 1, 'active'
+                self.checks, self.conflicts = [], []
+                self.journal = object()
+                self.generations, self.ticks = [], 0
+                self.u = types.SimpleNamespace(refresh=lambda: None)
+            def location(self): return world['location']
+            def sync(self):
+                if world['read_fault']: raise TransientGameState('travel read interrupted')
+                self.phase = 'active' if world['location'] == 'gameplay' else world['location']
+                self.move = world['generation'] if self.phase == 'active' else 0
+                if self.move: self.generations.append(self.move)
+            def tick(self, dt):
+                if self.move:
+                    assert self.move == world['generation'], 'stale character used'
+                    self.ticks += 1
+            def release_inputs(self): pass
+            def flag(self, enabled): pass
+            def diagnostics(self): return {'phase': self.phase}
+            def state_snapshot(self): return {}
+        with tempfile.TemporaryDirectory() as folder:
+            w = Worker(queue.Queue(), folder)
+            e = Engine()
+            w.engine, w.process = e, Process()
+            w.enabled = w.configured = True
+            undo_owner = e.journal
+            now = 0.0
+            for generation in range(2, 102):
+                world.update(generation=generation, read_fault=True)
+                now += 3
+                with self.assertRaises(TransientGameState) as caught:
+                    w.step(now, .01, None, None, None)
+                with patch('worker.time.monotonic', return_value=now):
+                    w.recover(caught.exception, 'connection_update')
+                ticks = e.ticks
+                w.step(now+.1, .01, None, None, None)
+                self.assertEqual(e.ticks, ticks)  # No stale updates during retry delay.
+                world.update(read_fault=False, location='loading')
+                w.step(now+1, .01, None, None, None)
+                self.assertEqual(w.last_guide.stage, 'loading')
+                world['location'] = 'gameplay'
+                w.step(now+2, .01, None, None, None)
+                self.assertEqual(w.last_guide.stage, 'active')
+                self.assertTrue(w.configured)
+                self.assertIs(w.engine, e)
+                self.assertIs(e.journal, undo_owner)
+                self.assertFalse(w.recovering)
+            self.assertEqual(e.generations, list(range(2, 102)))
+            self.assertEqual(w.recorder.total_errors, 100)
+            stages = [v.stage for k, v in w.events.queue if k == 'guide']
+            self.assertNotIn('return_title', stages)
+            self.assertNotIn('apply', stages)
+
+    def test_persistent_failure_has_bounded_backoff_and_stop_still_works(self):
+        with tempfile.TemporaryDirectory() as folder:
+            w = Worker(queue.Queue(), folder)
+            w.enabled = w.configured = True
+            delays = []
+            for _ in range(20):
+                with patch('worker.time.monotonic', return_value=100):
+                    w.recover(TransientGameState('objects unavailable'), 'connection_update')
+                delays.append(w.next_sync-100)
+                self.assertEqual(w.last_guide.stage, 'recovering')
+            self.assertEqual(delays[:4], [.25, .5, 1, 2])
+            self.assertTrue(all(v == 2 for v in delays[4:]))
+            w.command('stop', None, None, None, None)
+            self.assertFalse(w.enabled)
+            self.assertEqual(w.last_guide.stage, 'stopped')
+
+    def test_game_exit_discards_old_engine_and_does_not_reuse_selected_pid(self):
+        calls = []
+        class OldProcess:
+            pid, hash = 1, 'supported-hash'
+            def alive(self): return False
+            def close(self): calls.append('closed')
+        class OldEngine:
+            def release_inputs(self): calls.append('released')
+            def diagnostics(self): return {}
+            def state_snapshot(self): return {}
+        class NewProcess:
+            pid, hash = 2, 'supported-hash'
+            def __init__(self, found, writable): calls.append(('opened', found[0]))
+            def alive(self): return True
+        class NewEngine:
+            def __init__(self, process, settings): self.move = 0
+            def enable_backup(self, path): pass
+            def location(self): return 'gameplay'
+            def can_resume(self): return True
+            def flag(self, enabled): pass
+        with tempfile.TemporaryDirectory() as folder:
+            w = Worker(queue.Queue(), folder)
+            w.process, w.engine = OldProcess(), OldEngine()
+            w.enabled = w.configured = True
+            w.selected_pid = 1
+            finder = lambda: (2, 0, 'game')
+            w.step(10, .01, NewEngine, NewProcess, finder)
+            self.assertIsNone(w.engine)
+            self.assertIsNone(w.selected_pid)
+            self.assertFalse(w.configured)
+            w.step(11, .01, NewEngine, NewProcess, finder)
+            self.assertIsInstance(w.engine, NewEngine)
+            self.assertEqual(w.last_guide.stage, 'resume')
+            self.assertEqual(calls, ['released', 'closed', ('opened', 2)])
+
     def test_transitions_cleanup_failure_and_export_after_fatal(self):
         world = {'location': 'title', 'reads': 0, 'cleanup': False, 'refresh': 0, 'fatal': False, 'stops': 0}
         class Process:

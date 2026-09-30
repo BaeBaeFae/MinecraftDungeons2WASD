@@ -18,7 +18,7 @@ Steps to reproduce, the exact status/error text, and the map/boss/menu transitio
 
 ## Controls
 
-- Native interaction mode enabled?
+- Original click behavior (troubleshooting) enabled?
 - Attack-in-place / ground click blocking / interaction-approach blocking:
 - Jump Slam assist enabled?
 
@@ -26,7 +26,7 @@ Steps to reproduce, the exact status/error text, and the map/boss/menu transitio
 
 - Did it recover automatically?
 - Did Retry / Apply work without returning to title?
-- For a revive: did native interaction mode change the result?
+- For an interaction: did the character interact or swing a weapon?
 
 ## Diagnostics
 

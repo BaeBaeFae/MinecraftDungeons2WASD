@@ -1,16 +1,20 @@
-# 0.1.1 beta test candidate
+# 0.1.1 beta
 
-This build addresses connection recovery and adds diagnostics for the first user reports. It is a test candidate, not a confirmed co-op fix.
+- Give native interactions priority over stationary melee automatically. Mouse-directed attacks and aiming remain intact; Root / Stand Still bindings are no longer paired with the primary button.
+- Retry temporary game-state failures without discarding applied settings or restoration records. Resume after loading when the required input objects are ready.
+- Add manual process selection with the same supported-build checks as automatic detection.
+- Improve title/gameplay controller detection and show an explicit status for unrecognized screens.
+- Save bounded, redacted diagnostics locally after failures; retain error history for manual export.
+- Clarify control overrides and add a reset to companion control defaults.
 
-- Recover from interrupted memory reads, changed objects, and cleanup/refresh failures without terminating the worker or discarding the undo journal.
-- Preserve applied settings and retry automatically in gameplay. Only request title for missing movement mappings.
-- Add a process selector to Setup, with Refresh and Show all processes. Manual selection cannot bypass build validation.
-- Recognize subclasses of the supported title/gameplay controllers. Show an explicit unknown-screen notice for unrecognized controllers.
-- Save a bounded, redacted last-session report on failures. Manual export retains recent errors and the last attached state after fatal failures.
-- Add Native interaction mode as an unverified revive workaround: original click behavior returns while WASD/turning remain configured. Jump Slam assist is suspended in this mode. Dodge behavior is unchanged.
+## Updating
 
-36 automated tests pass. Packaged GUI structural checks cover new recovery and detection states. No live game was available; boss rematches, matchmaking guest transitions, co-op revives, and the affected user's title-screen variant remain unverified.
+Close the previous companion and choose to restore original controls. Extract the entire new ZIP and run DungeonsInputStudio.exe. Complete the normal title-screen setup once. Keep Attack in place enabled and Original click behavior disabled for automatic interaction priority.
 
-For testing: close the old companion normally, extract the full ZIP, and start this build. After a problem, choose Save diagnostics. The automatic report is at %LOCALAPPDATA%/DungeonsInputStudio/diagnostics/last-session.json. Reports stay local; review before sharing. Include storefront, exact notice, host/guest role, and the transition where it happened.
+Temporary travel interruptions recover automatically. A restarted game requires applying settings for the new session. Return to title only when the app reports missing movement mappings.
 
-Multiplayer remains outside the validated support scope. To try the revive workaround, enable Controls → Native interaction mode, Apply settings, and use the game's normal revive interaction. Click-to-move returns in this mode; disable it and Apply to restore your saved click preferences.
+## Validation and compatibility
+
+47 automated tests pass, including 100 simulated travel-recovery cycles, bounded retry delays, new-process handling, and exact interaction-patch restoration. Automatic interaction behavior was confirmed by the user. The reported matchmaking disconnect and a co-op revive have not been independently reproduced; this remains a beta for the previously supported Windows x64 Steam build.
+
+No telemetry or runtime network connection. Diagnostics stay on the player's PC unless manually shared. The release includes the application, curated source, licenses, and SHA-256 checksums.

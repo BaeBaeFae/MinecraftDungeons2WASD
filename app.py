@@ -289,19 +289,22 @@ def gui(smoke=None, start_immediately=False):
         else:
             checks_text.set('Gameplay settings are not yet verified for the current character.')
 
+    check_widgets = {}
     def check(parent, key, title, note):
-        ttk.Checkbutton(parent, text=title, variable=variables[key]).pack(anchor='w', pady=(5, 2))
+        widget = ttk.Checkbutton(parent, text=title, variable=variables[key])
+        widget.pack(anchor='w', pady=(5, 2))
+        check_widgets[key] = widget
         ttk.Label(parent, text=note, wraplength=640, foreground='#91a6b8').pack(anchor='w', padx=23, pady=(0, 12))
 
-    check(control, 'wasd', 'Enable keyboard movement', 'Native movement. Rebind any conflicting game controls when prompted.')
+    check(control, 'wasd', 'Enable keyboard movement', 'Native movement with mouse-directed attacks and aiming. Rebind any conflicting game controls when prompted.')
     grid = ttk.Frame(control)
     grid.pack(fill='x', padx=23, pady=(0, 18))
     for index, (key, label) in enumerate([('forward', 'Forward'), ('left', 'Left'), ('back', 'Back'), ('right', 'Right')]):
         ttk.Label(grid, text=label).grid(row=0, column=index, sticky='w', padx=(0, 24))
         ttk.Combobox(grid, textvariable=variables[key], values=KEYS, state='readonly', width=8).grid(row=1, column=index, padx=(0, 24), pady=5)
-    check(control, 'native_interactions', 'Native interaction mode (revive workaround)',
-          'Restores the original attack / interact / click-to-approach behavior while keeping WASD and turning. Enable and Apply before attempting a revive. Click movement returns in this mode; co-op is not yet validated.')
-    check(control, 'attack_in_place', 'Attack in place with your primary button', 'Pairs Root / Stand Still with your primary action. Shift is free for another binding.')
+    check(control, 'native_interactions', 'Original click behavior (troubleshooting)',
+          'Restores the original attack / interact / click-to-approach behavior while keeping WASD and turning. Click movement returns in this mode. Normal attack-in-place now gives native interactions priority automatically; co-op validation is pending.')
+    check(control, 'attack_in_place', 'Attack in place with your primary button', 'Attacks in place unless the game identifies an interaction target. Interactions take priority automatically; no toggle during combat. Mouse aiming and your Root binding are preserved.')
     check(control, 'block_ground_move', 'Disable clicking the ground to move', 'Blocks both movement while holding the button and movement after release.')
     check(control, 'block_interaction_approach', 'Walk to interactions yourself', 'Clicking a distant chest or NPC will not walk you there. Move into range to interact.')
     check(control, 'jump_slam', 'Jump + hold left-click to slam (beta)',
@@ -320,6 +323,26 @@ def gui(smoke=None, start_immediately=False):
     ttk.Spinbox(delay_row, from_=0, to=500, increment=10, textvariable=variables['slam_delay'], width=8).pack(side='right')
     ttk.Label(control, text='Other buttons: remap them in the game. Keep this companion running to maintain the chosen input behavior.',
               wraplength=640, foreground='#91a6b8').pack(anchor='w', pady=(10, 0))
+    interaction_note = tk.StringVar()
+    ttk.Label(control, textvariable=interaction_note, wraplength=640,
+              foreground='#ffd28a').pack(anchor='w', pady=(10, 6))
+    def interaction_options(*_):
+        native = variables['native_interactions'].get()
+        for key in ('attack_in_place', 'block_ground_move',
+                    'block_interaction_approach', 'jump_slam'):
+            check_widgets[key].state(['disabled'] if native else ['!disabled'])
+        interaction_note.set('Native interaction mode overrides the grayed options after Apply. Your choices are retained for when you turn this mode off.'
+                             if native else 'Options are independent. Click Apply settings after changing them. Attacks and aimed items continue to use the mouse.')
+    variables['native_interactions'].trace_add('write', interaction_options)
+    interaction_options()
+    def reset_controls():
+        defaults = Settings()
+        for key in ('wasd', 'forward', 'left', 'back', 'right', 'native_interactions',
+                    'attack_in_place', 'block_ground_move',
+                    'block_interaction_approach', 'jump_slam', 'slam_binding', 'slam_delay'):
+            variables[key].set(getattr(defaults, key))
+    ttk.Button(control, text='Reset control options to companion defaults',
+               command=reset_controls).pack(anchor='w', pady=(4, 12))
 
     preset_line = ttk.Frame(turning)
     preset_line.pack(fill='x', pady=(0, 14))
