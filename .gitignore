@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+build-deps/
+dist*/
+release/
+*.spec
+*.json
+*.log
+backups/
+.codebase-memory/

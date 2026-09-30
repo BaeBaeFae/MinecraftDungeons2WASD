@@ -1,0 +1,17 @@
+Dungeons Input Studio includes a Python runtime with Tcl/Tk and a PyInstaller
+bootloader. No Minecraft Dungeons II code or assets are bundled.
+
+Python 3.12: Python Software Foundation License and associated notices.
+https://docs.python.org/3/license.html
+See licenses/PYTHON-LICENSE.txt.
+
+Tcl/Tk: Tcl/Tk license terms.
+https://www.tcl.tk/software/tcltk/license.html
+See the license files under _internal/_tcl_data and _internal/_tk_data.
+
+PyInstaller 6.16.0: GPL with the bootloader exception allowing distribution of
+bundled applications under their own license.
+https://pyinstaller.org/en/stable/license.html
+See licenses/PYINSTALLER-COPYING.txt.
+
+The build-only packages in requirements-build.txt are not imported by the app.
