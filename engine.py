@@ -11,7 +11,7 @@ class Engine:
     FLAG = 0xC068610
 
     def __init__(self, process, settings):
-        self.p, self.settings = process, settings.validate()
+        self.p, self.settings = process, settings.validate().effective()
         self.u = UE(process)
         self.journal = Journal(process)
         self.u.refresh()
@@ -187,12 +187,13 @@ class Engine:
             self.local = self.u.one('DungeonsLocalPlayer')
             self.local_guard = self.u.guard(self.local)
         pc = self.u.u64(self.local+48)
-        name = self.u.name(pc)
-        if name.startswith('BP_MenuPlayerController_C'):
+        if not pc:
+            return 'loading'
+        if self.u.is_a(pc, 'BP_MenuPlayerController_C'):
             return 'title'
-        if name.startswith('BP_GameplayPlayerController_C') and self.u.u64(pc+0x2e8):
-            return 'gameplay'
-        return 'loading'
+        if self.u.is_a(pc, 'BP_GameplayPlayerController_C'):
+            return 'gameplay' if self.u.u64(pc+0x2e8) else 'loading'
+        return 'unknown_screen'
 
     def configure(self, settings):
         settings.validate()
@@ -200,7 +201,7 @@ class Engine:
         self.slam.error = self.slam_problem = ''
         self.journal.restore_where()
         self.restore_saved_bindings()
-        self.settings = settings
+        self.settings = settings.effective()
         self.move = self.pc = self.pawn = 0
         self.move_guard = lambda: False
         self.speed = 0.0
@@ -347,44 +348,44 @@ class Engine:
     def patch_profile(self, attack_key):
         self.conflicts = []
         movement_keys = {self.settings.forward, self.settings.left, self.settings.back, self.settings.right}
-        roots = 0
         for name, mapping, guard in self.profile_rows():
             key = self.u.name_at(mapping+0x48)
-            if name == 'Root' and self.settings.attack_in_place:
-                roots += 1
-                self.record_binding('profile_root', key, attack_key)
-                self.journal.set(mapping+0x48, self.u.key_name(attack_key), guard, key=True)
-            elif self.settings.wasd and key in movement_keys:
+            if self.settings.wasd and key in movement_keys:
                 self.conflicts.append(f'{key}: {name}')
-        if self.settings.attack_in_place and roots != 1:
-            raise StaleState('Stand-still profile row is not ready or is ambiguous.')
 
     def patch_tree(self, pc):
+        if not (self.settings.block_ground_move or self.settings.block_interaction_approach
+                or self.settings.attack_in_place):
+            return  # Original click behavior needs no state-tree mutation or discovery.
         u = self.u
         component = u.u64(pc + u.offset(pc, 'StateTreeComponent'))
         tree = u.u64(component + u.offset(component, 'StateTreeRef'))
-        if u.name(tree) != 'ST_PlayerInput':
-            raise StaleState('Unexpected player input state tree.')
+        tree_name = u.name(tree)
+        if tree_name != 'ST_PlayerInput':
+            raise StaleState(f'Player input tree not ready: {tree_name}.')
+        interaction_changes = []
+        if self.settings.attack_in_place:
+            from interaction import plan_interaction_priority
+            interaction_changes, interaction_guard = plan_interaction_priority(u, tree)
         offset = u.offset(tree, 'States')
         pointer, count = u.array(tree+offset, 400)
-        targets = set()
-        if self.settings.block_ground_move:
-            targets.update(('MoveTowardsCursor', 'PathTowardsCursor'))
-        if self.settings.block_interaction_approach:
-            targets.add('MoveToInteractable')
-        found = set()
+        from input_states import plan_state_changes
+        rows = []
         for i in range(count):
             state = pointer+i*96
             name = u.name_at(state+16)
-            if name not in targets:
-                continue
-            found.add(name)
+            rows.append((name, state, u.read(state+93, 1)[0]))
+        try:
+            changes = plan_state_changes(rows, self.settings.block_ground_move,
+                                         self.settings.block_interaction_approach)
+        except ValueError as exc:
+            raise StaleState(str(exc)) from exc
+        for address, value in interaction_changes:
+            self.journal.set(address, value, interaction_guard)
+        for state, flags in changes:
             guard = u.guard(tree, [(tree+offset, struct.pack('<Q', pointer)),
                                    (state+16, u.read(state+16, 8))])
-            current = u.read(state+93, 1)[0]
-            self.journal.set(state+93, bytes([current & ~0x20]), guard)
-        if found != targets:
-            raise StaleState('Expected click-movement states are missing.')
+            self.journal.set(state+93, bytes([flags]), guard)
 
     def sync(self):
         u = self.u
@@ -396,8 +397,8 @@ class Engine:
             self.local = u.one('DungeonsLocalPlayer')
             self.local_guard = u.guard(self.local)
         pc = u.u64(self.local+48)
-        name = u.name(pc)
-        gameplay = name.startswith('BP_GameplayPlayerController_C')
+        location = self.location()
+        gameplay = location == 'gameplay'
         pawn = u.u64(pc+0x2e8) if gameplay else 0
         if not gameplay or not pawn:
             self.flag(False)
@@ -407,7 +408,7 @@ class Engine:
             self.prepare_context()
         if not gameplay or not pawn:
             self.status = 'Ready at title — press Play. WASD feature flag is off here.'
-            self.phase = 'title' if name.startswith('BP_MenuPlayerController_C') else 'loading'
+            self.phase = location
             return
         # Context objects can be loaded/replaced during map transitions.
         if time.monotonic() - self.last_refresh > 5 and not u.objects('InputMappingContext'):
@@ -416,26 +417,13 @@ class Engine:
         if self.settings.wasd:
             native = u.one('InputMappingContext', 'IMC_AITestRunner')
             self.movement_keys(native, u.offset(native, 'Mappings'))
-        if self.settings.attack_in_place:
-            source = u.one('InputMappingContext', 'IMC_DefaultKBM')
-            # The player's PrimaryAction remap takes precedence over the default context.
-            attack_key = next((u.name_at(m+0x48) for nm, m, g in self.profile_rows() if nm == 'PrimaryAction'), 'LeftMouseButton')
-            rows, guard = self.mapping_rows(source, u.offset(source, 'Mappings'))
-            for entry, action, key in rows:
-                if action == 'IA_RootPlayer':
-                    self.record_binding('source_root', key, attack_key)
-                    self.journal.set(entry+40, u.key_name(attack_key), self.row_guard(entry, guard), key=True)
-            self.patch_profile(attack_key)
-        else:
-            self.patch_profile('LeftMouseButton')
+        self.patch_profile('LeftMouseButton')
         if not gameplay or not pawn:
             self.status = 'Ready at title — press Play. WASD feature flag is off here.'
             return
         pi = u.u64(pc + u.offset(pc, 'PlayerInput'))
         mappings_offset = u.offset(pi, 'EnhancedActionMappings')
         movement = self.movement_keys(pi, mappings_offset) if self.settings.wasd else set()
-        if self.settings.attack_in_place:
-            self.root_binding(pi, mappings_offset)
         self.patch_tree(pc)
         self.flag(self.settings.wasd and bool(movement))
         if pc != self.pc or pawn != self.pawn or not self.move_guard():
@@ -454,9 +442,11 @@ class Engine:
         self.phase = 'active'
         self.checks = [
             f'Keyboard movement: {len(movement)}/4 mappings ready' if self.settings.wasd else 'Keyboard movement: off in your profile',
-            'Click controls: selected behavior applied',
+            'Click controls: native interaction priority; mouse aiming preserved' if self.settings.attack_in_place else 'Click controls: selected behavior applied',
             f'Turning: {"smooth" if self.settings.smooth else "constant"}, {self.settings.maximum:g}°/s maximum',
         ]
+        if self.settings.native_interactions:
+            self.checks.append('Original click behavior: automatic interaction priority is disabled.')
         if self.settings.wasd and len(movement) < 4:
             self.status = 'Movement mappings incomplete — return to title and load your character once.'
             self.phase = 'needs_reload'
@@ -514,3 +504,22 @@ class Engine:
                 'jump_slam': {'binding': self.slam_key, 'problem': self.slam_problem,
                               'presses_sent': self.slam.count, 'held': self.slam.held},
                 'owned_changes': len(self.journal.entries), 'local_players': len(self.u.objects('DungeonsLocalPlayer'))}
+
+    def state_snapshot(self):
+        """Best effort, no raw pointers or player identities; works while loading."""
+        report = {'phase': self.phase, 'object_counts': {k: len(v) for k, v in self.u.index.items()}}
+        try:
+            pc = self.u.u64(self.local+48)
+            report['controller_class'] = self.u.class_name(pc) if pc else 'None'
+            report['location'] = self.location()
+            if report['location'] == 'gameplay':
+                report['movement_mappings_ready'] = self.can_resume()
+                component = self.u.u64(pc+self.u.offset(pc, 'StateTreeComponent'))
+                tree = self.u.u64(component+self.u.offset(component, 'StateTreeRef'))
+                report['input_tree'] = self.u.name(tree)
+                rows = self.profile_rows()
+                report['relevant_bindings'] = [{'action': n, 'key': self.u.name_at(m+0x48)} for n, m, g in rows
+                                               if n in ('Root', 'PrimaryAction', 'Interact', 'Revive', 'HeavyJumpAttack')]
+        except (RuntimeError, OSError) as exc:
+            report['snapshot_error'] = str(exc)
+        return report

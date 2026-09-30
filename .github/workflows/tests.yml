@@ -13,4 +13,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run regression tests (no game required)
-        run: python -m unittest -v test_app test_slam test_backup
+        run: python -m unittest -v test_app test_slam test_backup test_recovery test_input_states test_interaction

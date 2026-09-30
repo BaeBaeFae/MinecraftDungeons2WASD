@@ -14,206 +14,7 @@ from guidance import guide, classify_error, STEPS
 DATA = Path(os.environ.get('LOCALAPPDATA', Path.home())) / 'DungeonsInputStudio'
 
 
-class Worker(threading.Thread):
-    def __init__(self, events):
-        super().__init__(daemon=False)
-        self.commands, self.events = queue.Queue(), events
-        self.engine = self.process = None
-        self.enabled = False
-        self.settings = Settings()
-        self.last_status = ''
-        self.last_guide = None
-        self.last_notice = None
-        self.configured = False
-        self.reload_required = False
-
-    def publish(self, stage, detail='', checks=()):
-        value = guide(stage, detail, checks, self.configured)
-        if value != self.last_guide:
-            self.events.put(('guide', value))
-            self.last_guide = value
-        notice = (value.stage, value.title, value.detail, value.next_action)
-        if notice != self.last_notice:
-            self.events.put(('notice', value.title+'\n'+value.detail+'\n'))
-            self.last_notice = notice
-
-    def show_engine_state(self):
-        phase = self.engine.phase
-        if phase == 'needs_reload':
-            self.reload_required = True
-        if phase == 'title':
-            self.publish('load_character' if self.configured else 'apply')
-        else:
-            detail = 'Conflicting bindings: ' + ', '.join(self.engine.conflicts) if self.engine.conflicts else ''
-            if phase == 'assist_warning': detail = self.engine.slam_problem
-            self.publish(phase, detail, self.engine.checks)
-
-    def emit(self, status):
-        if status != self.last_status:
-            self.events.put(('status', status))
-            self.last_status = status
-
-    def detach(self, restore=True):
-        warning = ''
-        if self.engine:
-            try:
-                if not self.process.alive():
-                    release = getattr(self.engine, 'release_inputs', None)
-                    if release: release()
-                elif not restore:
-                    self.engine.leave_controls()
-                    self.events.put(('log', 'Originals saved; leaving current bindings and click settings. Smoothing and Jump Slam assist stop; the title compatibility flag is cleared.'))
-                else:
-                    restored, skipped = self.engine.stop()
-                    if skipped:
-                        warning = f'{skipped} entries expired, changed externally, or could not be restored. Those controls could not all be confirmed.'
-                    self.events.put(('log', f'Restored {restored} owned changes; {skipped} expired or externally changed entries skipped.'))
-            except Exception as exc:
-                self.events.put(('log', f'Restore incomplete: {exc}. Restart the game to clear remaining runtime changes.'))
-                warning = str(exc)
-        self.engine = None
-        if self.process:
-            self.process.close()
-        self.process = None
-        self.configured = False
-        self.reload_required = False
-        return warning
-
-    def run(self):
-        from engine import Engine
-        from ue import StaleState
-        from winmem import Process, find_game
-        next_attach = next_sync = 0.0
-        previous = time.monotonic()
-        running = True
-        try:
-            while running:
-                while True:
-                    try:
-                        cmd, value = self.commands.get_nowait()
-                    except queue.Empty:
-                        break
-                    if cmd == 'start':
-                        self.settings = value.validate()
-                        self.enabled = True
-                        self.configured = False
-                        self.publish('connecting')
-                        next_attach = next_sync = 0
-                    elif cmd == 'settings':
-                        self.settings = value.validate()
-                        if self.engine:
-                            if not self.configured:
-                                try:
-                                    location = self.engine.location()
-                                except StaleState as exc:
-                                    self.publish('recovering', str(exc))
-                                    continue
-                                if location != 'title' and not self.engine.can_resume():
-                                    self.publish('return_title')
-                                    continue
-                            self.publish('applying')
-                            try:
-                                self.engine.configure(self.settings)
-                                self.engine.sync()
-                                self.engine.tick(1/120)
-                            except StaleState as exc:
-                                self.engine.flag(False)
-                                self.engine.move = 0
-                                self.publish('recovering', str(exc))
-                            else:
-                                self.configured = True
-                                self.reload_required = False
-                                self.events.put(('applied', asdict(self.settings)))
-                                self.show_engine_state()
-                        else:
-                            self.publish('waiting_game' if self.enabled else 'idle')
-                        next_sync = 0
-                    elif cmd in ('stop', 'close', 'close_keep', 'restore'):
-                        self.enabled = False
-                        if cmd in ('restore', 'close') and self.engine is None:
-                            found = find_game()
-                            if not found:
-                                self.publish('stopped', 'No running game to restore. Saved backups have been retained.')
-                                if cmd == 'close': running = False
-                                continue
-                            self.process = Process(found, writable=True)
-                            self.engine = Engine(self.process, self.settings)
-                            self.engine.enable_backup(DATA/'backups')
-                        warning = self.detach(restore=cmd != 'close_keep')
-                        self.publish('restore_warning' if warning else 'stopped', warning)
-                        if cmd in ('close', 'close_keep'):
-                            if warning:
-                                self.events.put(('close_failed', warning))
-                            else:
-                                running = False
-                    elif cmd == 'diagnostics':
-                        report = {'app_version': VERSION, 'settings': asdict(self.settings)}
-                        if self.engine:
-                            report.update(self.engine.diagnostics())
-                        self.events.put(('diagnostics', (value, report)))
-                if not running:
-                    break
-                now = time.monotonic()
-                dt, previous = now - previous, now
-                if self.process and not self.process.alive():
-                    self.detach()
-                    self.publish('waiting_game', 'The previous game session has closed. Setup will run again for the next session.')
-                    next_attach = now + 1
-                if self.enabled and not self.process and now >= next_attach:
-                    found = find_game()
-                    if found:
-                        self.publish('connecting')
-                        self.process = Process(found, writable=True)
-                        try:
-                            self.engine = Engine(self.process, self.settings)
-                            self.engine.enable_backup(DATA/'backups')
-                        except StaleState as exc:
-                            self.detach()
-                            self.publish('loading', 'The game is still initializing. Stay at the title screen.')
-                            next_attach = now + 2
-                            continue
-                        self.events.put(('log', f'Attached to PID {self.process.pid}; verified build {self.process.hash[:12]}.'))
-                        next_sync = 0
-                    else:
-                        self.publish('waiting_game')
-                    next_attach = now + 2
-                if self.enabled and self.engine:
-                    try:
-                        if now >= next_sync:
-                            location = self.engine.location()
-                            if location == 'title' and self.reload_required:
-                                self.configured = False
-                                self.reload_required = False
-                            if not self.configured and location != 'title':
-                                self.engine.flag(False)
-                                self.engine.move = 0
-                                ready = location == 'gameplay' and self.engine.can_resume()
-                                self.publish('resume' if ready else 'return_title' if location == 'gameplay' else 'loading')
-                            else:
-                                self.engine.sync()
-                                if self.configured:
-                                    self.engine.tick(dt)
-                                self.show_engine_state()
-                            next_sync = now + 0.25
-                        if self.configured:
-                            self.engine.tick(dt)
-                    except StaleState as exc:
-                        self.engine.flag(False)
-                        self.engine.move = 0
-                        self.publish('recovering', str(exc))
-                        if now - self.engine.last_refresh > 2:
-                            self.engine.u.refresh()
-                            self.engine.last_refresh = now
-                        next_sync = now + 0.5
-                time.sleep(1 / 120 if self.enabled and self.engine else 0.05)
-        except Exception as exc:
-            self.events.put(('log', traceback.format_exc()))
-            warning = self.detach()
-            self.enabled = False
-            self.publish('restore_warning' if warning else classify_error(exc), str(exc) + ('\nRestore: '+warning if warning else ''))
-        finally:
-            self.detach()
-            self.events.put(('closed', None))
+from worker import Worker
 
 
 def probe(path):
@@ -411,6 +212,31 @@ def gui(smoke=None, start_immediately=False):
             canvas, body = pages[notebook.select()]
             canvas.yview_scroll(-int(event.delta/120), 'units')
     root.bind('<MouseWheel>', scroll_page)
+    process_row = ttk.LabelFrame(setup, text='Game process', padding=10)
+    process_row.pack(fill='x', pady=(0, 14))
+    process_choice = tk.StringVar(value='Auto detect')
+    process_choices = {'Auto detect': None}
+    process_list = []
+    show_all = tk.BooleanVar(value=False)
+    process_combo = ttk.Combobox(process_row, textvariable=process_choice, values=('Auto detect',), state='readonly', width=47)
+    process_combo.pack(side='left', fill='x', expand=True)
+    def refresh_processes():
+        worker.commands.put(('processes', None))
+    def show_processes():
+        process_choices.clear()
+        process_choices['Auto detect'] = None
+        for item in process_list:
+            if show_all.get() or 'dungeons' in item['name'].lower():
+                process_choices[f"{item['pid']} — {item['name']}"] = item['pid']
+        process_combo.configure(values=tuple(process_choices))
+    def select_process(event=None):
+        worker.commands.put(('select_process', process_choices.get(process_choice.get())))
+    process_combo.bind('<<ComboboxSelected>>', select_process)
+    ttk.Button(process_row, text='Refresh', command=refresh_processes).pack(side='left', padx=8)
+    ttk.Checkbutton(setup, text='Show all processes (when the game is missing from the list)',
+                    variable=show_all, command=show_processes).pack(anchor='w', pady=(0, 6))
+    ttk.Label(setup, text='Refresh, select the actual game process, then Start companion. Manual selection still verifies the supported build. Restore originals before switching processes.',
+              foreground='#91a6b8', wraplength=685).pack(anchor='w', pady=(0, 14))
     ttk.Label(setup, text='A clear path from setup to play', font=('Segoe UI', 15, 'bold')).pack(anchor='w')
     ttk.Label(setup, text='First setup may need title. A prepared character can reconnect here without leaving gameplay.',
               foreground='#91a6b8', wraplength=690).pack(anchor='w', pady=(4, 12))
@@ -433,6 +259,8 @@ def gui(smoke=None, start_immediately=False):
         nonlocal current_guide, active
         current_guide = value
         active = value.can_stop
+        process_combo.configure(state='readonly' if value.stage in (
+            'idle', 'waiting_game', 'select_process', 'stopped', 'error', 'unsupported', 'restore_warning') else 'disabled')
         colors = {'info': ('#172936', '#c9e8ff'), 'waiting': ('#292719', '#ffe3a1'),
                   'warning': ('#332817', '#ffd28a'), 'error': ('#361e25', '#ffb4bb'),
                   'success': ('#17302a', '#9ae9ca')}
@@ -461,17 +289,22 @@ def gui(smoke=None, start_immediately=False):
         else:
             checks_text.set('Gameplay settings are not yet verified for the current character.')
 
+    check_widgets = {}
     def check(parent, key, title, note):
-        ttk.Checkbutton(parent, text=title, variable=variables[key]).pack(anchor='w', pady=(5, 2))
+        widget = ttk.Checkbutton(parent, text=title, variable=variables[key])
+        widget.pack(anchor='w', pady=(5, 2))
+        check_widgets[key] = widget
         ttk.Label(parent, text=note, wraplength=640, foreground='#91a6b8').pack(anchor='w', padx=23, pady=(0, 12))
 
-    check(control, 'wasd', 'Enable keyboard movement', 'Native movement. Rebind any conflicting game controls when prompted.')
+    check(control, 'wasd', 'Enable keyboard movement', 'Native movement with mouse-directed attacks and aiming. Rebind any conflicting game controls when prompted.')
     grid = ttk.Frame(control)
     grid.pack(fill='x', padx=23, pady=(0, 18))
     for index, (key, label) in enumerate([('forward', 'Forward'), ('left', 'Left'), ('back', 'Back'), ('right', 'Right')]):
         ttk.Label(grid, text=label).grid(row=0, column=index, sticky='w', padx=(0, 24))
         ttk.Combobox(grid, textvariable=variables[key], values=KEYS, state='readonly', width=8).grid(row=1, column=index, padx=(0, 24), pady=5)
-    check(control, 'attack_in_place', 'Attack in place with your primary button', 'Pairs Root / Stand Still with your primary action. Shift is free for another binding.')
+    check(control, 'native_interactions', 'Original click behavior (troubleshooting)',
+          'Restores the original attack / interact / click-to-approach behavior while keeping WASD and turning. Click movement returns in this mode. Normal attack-in-place now gives native interactions priority automatically; co-op validation is pending.')
+    check(control, 'attack_in_place', 'Attack in place with your primary button', 'Attacks in place unless the game identifies an interaction target. Interactions take priority automatically; no toggle during combat. Mouse aiming and your Root binding are preserved.')
     check(control, 'block_ground_move', 'Disable clicking the ground to move', 'Blocks both movement while holding the button and movement after release.')
     check(control, 'block_interaction_approach', 'Walk to interactions yourself', 'Clicking a distant chest or NPC will not walk you there. Move into range to interact.')
     check(control, 'jump_slam', 'Jump + hold left-click to slam (beta)',
@@ -490,6 +323,26 @@ def gui(smoke=None, start_immediately=False):
     ttk.Spinbox(delay_row, from_=0, to=500, increment=10, textvariable=variables['slam_delay'], width=8).pack(side='right')
     ttk.Label(control, text='Other buttons: remap them in the game. Keep this companion running to maintain the chosen input behavior.',
               wraplength=640, foreground='#91a6b8').pack(anchor='w', pady=(10, 0))
+    interaction_note = tk.StringVar()
+    ttk.Label(control, textvariable=interaction_note, wraplength=640,
+              foreground='#ffd28a').pack(anchor='w', pady=(10, 6))
+    def interaction_options(*_):
+        native = variables['native_interactions'].get()
+        for key in ('attack_in_place', 'block_ground_move',
+                    'block_interaction_approach', 'jump_slam'):
+            check_widgets[key].state(['disabled'] if native else ['!disabled'])
+        interaction_note.set('Native interaction mode overrides the grayed options after Apply. Your choices are retained for when you turn this mode off.'
+                             if native else 'Options are independent. Click Apply settings after changing them. Attacks and aimed items continue to use the mouse.')
+    variables['native_interactions'].trace_add('write', interaction_options)
+    interaction_options()
+    def reset_controls():
+        defaults = Settings()
+        for key in ('wasd', 'forward', 'left', 'back', 'right', 'native_interactions',
+                    'attack_in_place', 'block_ground_move',
+                    'block_interaction_approach', 'jump_slam', 'slam_binding', 'slam_delay'):
+            variables[key].set(getattr(defaults, key))
+    ttk.Button(control, text='Reset control options to companion defaults',
+               command=reset_controls).pack(anchor='w', pady=(4, 12))
 
     preset_line = ttk.Frame(turning)
     preset_line.pack(fill='x', pady=(0, 14))
@@ -524,6 +377,7 @@ def gui(smoke=None, start_immediately=False):
         '2. Click Start companion and wait for title-screen detection.\n'
         '3. Click Apply settings, then load your character in the game.\n'
         '4. Wait for the green Working status. Rebind any reported conflicts.\n\n'
+        'Connection failures save a local, redacted report automatically. After an issue, use Save diagnostics to include the recent error history, controller class, input tree, and retry attempts. No upload occurs.\n\n'
         'Supported: Windows x64, the verified Steam executable for build 1.1.1.0. '
         'Other game builds are rejected. This beta has been tested on one PC in single-player; '
         'a second PC has also been reported working by the user. Stop & restore before joining or hosting multiplayer.\n\n'
@@ -599,7 +453,7 @@ def gui(smoke=None, start_immediately=False):
         variable.trace_add('write', changed)
     render_guide(guide('idle'))
     def pump():
-        nonlocal active, applied_values, closing
+        nonlocal active, applied_values, closing, process_list
         while True:
             try:
                 kind, value = events.get_nowait()
@@ -607,6 +461,11 @@ def gui(smoke=None, start_immediately=False):
                 break
             if kind == 'guide':
                 render_guide(value)
+            elif kind == 'processes':
+                process_list = value
+                show_processes()
+            elif kind == 'selection_reset':
+                process_choice.set('Auto detect')
             elif kind == 'notice':
                 log.insert('end', value)
             elif kind == 'applied':
@@ -657,7 +516,7 @@ def gui(smoke=None, start_immediately=False):
                 contrast['+'.join(state) or 'normal'] = {'foreground': fg, 'background': bg, 'ratio': round(ratio, 2)}
             scenarios = {}
             for stage in ('idle', 'waiting_game', 'connecting', 'apply', 'load_character', 'active',
-                          'resume', 'return_title', 'needs_reload', 'conflict', 'assist_warning', 'recovering', 'unsupported', 'error', 'stopped'):
+                          'resume', 'unknown_screen', 'select_process', 'return_title', 'needs_reload', 'conflict', 'assist_warning', 'recovering', 'unsupported', 'error', 'stopped'):
                 render_guide(guide(stage))
                 root.update_idletasks()
                 scenarios[stage] = {'title': status.get(), 'next': next_text.get(),

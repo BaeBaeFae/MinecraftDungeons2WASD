@@ -1,8 +1,9 @@
 """Validated reflection and object discovery for the single supported game build."""
 import struct
+from errors import TransientGameState
 
 
-class StaleState(RuntimeError):
+class StaleState(TransientGameState):
     pass
 
 
@@ -40,6 +41,16 @@ class UE:
 
     def class_name(self, obj):
         return self.name(self.u64(obj + 16))
+
+    def is_a(self, obj, expected):
+        cls = self.u64(obj+16) if obj else 0
+        for _ in range(64):
+            if not cls:
+                return False
+            if self.name(cls) == expected:
+                return True
+            cls = self.u64(cls+64)
+        raise StaleState('Controller class hierarchy is not ready.')
 
     def array(self, address, maximum=1000):
         pointer, count, capacity = struct.unpack('<Qii', self.read(address, 16))

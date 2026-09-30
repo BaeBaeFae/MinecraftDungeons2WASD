@@ -1,32 +1,11 @@
-# Validation — public 0.1 beta
+# Validation — 0.1.1 beta
 
-Public 0.1 beta consolidates the development builds below. Twenty-seven tests pass, including a regression that changes live verification counters six times while logging Working only once; recovery transitions and changed errors still produce notices. The public packaged UI check passed. The final public-build game probe could not run because the game was closed; earlier read-only adapter evidence below is retained.
+47 automated tests pass on Windows with Python 3.12. Coverage includes movement settings, turning dynamics, input cleanup, guarded restoration, profile persistence, process selection, diagnostics redaction, and automatic interaction priority.
 
-0.4.0: Twenty-six automated tests pass. Expanded worker coverage checks in-game reconnect, incomplete restore keeping the app open, and close-without-revert avoiding the restore path. New backup tests check write-ahead originals, reopening and restoring, rejected session mismatches, stale identities, preserved external remaps, backup-write failure, retry after a failed restore, and named binding recovery. Read-only live inspection captured 32 keyboard-profile bindings and verified the process creation-time identity. The game was at title during this check; the new no-title reconnect/restore flow still needs interactive gameplay confirmation. Packaged UI structural checks cover the resume state; no native screenshot claim is made.
+The production connection worker was driven through 100 simulated travel interruptions, loading periods, and replacement character generations. Every cycle resumed without another Apply or title-screen step, preserved settings and undo ownership, and avoided simulated stale-character updates during retry delays. Persistent failures back off from 0.25 to 2 seconds; Stop remains available. A simulated game restart discards the old engine and manual PID selection and requires Apply for the new session.
 
-0.3.0: Added opt-in Jump Slam input assist. Twenty automated tests cover the existing features plus one press per airborne movement, click-before/after-jump, focus/pause/stop/landing cleanup, manual button preservation when already held, binding conflicts and remaps, read-only suppression, failed-send release, profile validation, and Windows x64 INPUT encoding using a mocked sender. No automated test sends real input to the game. Read-only inspection confirmed HeavyJumpAttack bindings Q and ThumbMouseButton, reflected MovementMode (ground value 1), and the current world pause-state chain. Packaged UI smoke checks cover the assist warning and retained numeric contrast. New assist gameplay behavior is still pending user validation; successful synthetic sends do not prove successful attacks.
+Interaction tests check exact apply/reapply/restore, rejection of incorrect target bindings and extra condition consumers, and stale binding guards. Read-only planning passed against the live camp input tree. The user confirmed the resulting automatic interaction behavior. Mouse-directed aiming remains unchanged.
 
-0.2.0: Guided setup uses explicit states for connection, detected title screen, waiting for Apply settings, loading, verified active controls, conflicts, missing mappings, recovery, and fatal errors. Automated worker-flow tests exercise wrong-screen startup, Apply gating, activation, stopping, and reconnect setup without touching the game. Packaged GUI smoke checks exercise the visible states and button gating. The user reported the earlier release working on a second PC with the title → Start → Apply sequence; this is user-reported evidence, not an independently observed test.
+Packaged GUI smoke checks cover readable controls and setup/recovery states. Earlier native movement, click handling, turning, and restoration were tested interactively; another PC was reported working.
 
-0.1.1: Turning numeric fields now set their foreground and field background explicitly. Tk runtime style checks verify at least 4.5:1 text contrast in normal, focused, active, read-only, and disabled states. Native screenshot verification was unavailable because the computer-use runtime could not initialize. The gameplay adapter is unchanged from 0.1.0.
-
-Date: 2026-09-30. Host: Windows 11 x64, Python 3.12.4.
-
-## Passed
-
-- Eleven automated tests, including guided setup state transitions, Apply gating, reconnect behavior, and the existing coverage: profile round-trip and schema rejection, invalid/duplicate settings, shortest-angle wrapping, smoothing convergence and speed bounds at 30/60/120/144 Hz, acceleration after long scheduling gaps, rollback after repeated edits, refusal to restore stale or externally changed values, and FKey cache clearing.
-- Read-only discovery and configuration planning against the verified running game: one local player, twelve input mapping contexts, the keyboard profile, native WASD modifiers, and the correct input state tree. No saved session heap address or fixed PID was used by the adapter.
-- Source and packaged GUI startup: four tabs, thirteen guided status states, button gating, saved profile loading, layout sizing, and numeric field contrast. The GUI test did not attach to the game.
-- Packaged read-only process probe, including runtime signature and executable SHA-256 checks.
-- Live supported-build integration: prior experimental settings were temporarily restored to their original values, the new adapter applied nine owned data changes, ran smoothing, then restored all nine with zero skipped entries. Each restored value was compared to the captured baseline.
-- Earlier interactive tests in the same gameplay session: WASD, Shift remapping, attack/interact without ground click movement, out-of-range interaction approach blocking, and 900-degree-per-second smoothed turning were confirmed by the user before packaging.
-
-## Still needs independent validation
-
-- Another PC and a fresh game launch using only the packaged companion.
-- All custom key combinations and all input/interaction edge cases.
-- Title-to-gameplay transition timing under heavy load.
-- Multiplayer and split-screen. The release is scoped to one local player in single-player; stop before joining/hosting multiplayer.
-- Other storefronts, operating systems, and future game builds. The current adapter rejects unknown executable hashes.
-
-This evidence supports a shareable beta for the exact supported build. It does not establish universal compatibility.
+Fault injection uses fake game objects. It does not reproduce the specific boss rematch or matchmaking guest report. Co-op revival and all multiplayer combinations remain unverified. Unsupported builds are rejected; fatal writes stop rather than being treated as ordinary loading. No claim of universal compatibility is made.

@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-VERSION = '0.1.0-beta'
+VERSION = '0.1.1-beta'
 BUILD_HASH = '7c83afbf0ad34a40b853cdb25a22fffb605d08e2a1e2d431974d7c7c1ee0ba54'
 KEYS = tuple('ABCDEFGHIJKLMNOPQRSTUVWXYZ') + ('Up', 'Down', 'Left', 'Right')
 
@@ -15,6 +15,7 @@ class Settings:
     attack_in_place: bool = True
     block_ground_move: bool = True
     block_interaction_approach: bool = True
+    native_interactions: bool = False
     jump_slam: bool = False
     slam_binding: str = 'Auto'
     slam_delay: float = 80.0
@@ -30,7 +31,7 @@ class Settings:
 
     def validate(self):
         for name in ('wasd', 'attack_in_place', 'block_ground_move',
-                     'block_interaction_approach', 'smooth', 'jump_slam'):
+                     'block_interaction_approach', 'smooth', 'jump_slam', 'native_interactions'):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f'{name} must be true or false.')
         for name, low, high in [('maximum', 90, 1800), ('acceleration', 500, 20000),
@@ -45,6 +46,13 @@ class Settings:
         if len(set(movement)) != 4 or any(key not in KEYS for key in movement):
             raise ValueError('Choose four different movement keys.')
         return self
+
+    def effective(self):
+        if not self.native_interactions:
+            return self
+        from dataclasses import replace
+        return replace(self, attack_in_place=False, block_ground_move=False,
+                       block_interaction_approach=False, jump_slam=False)
 
     @classmethod
     def load(cls, path):

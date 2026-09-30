@@ -1,28 +1,20 @@
-# 0.1 beta — first public release
+# 0.1.1 beta
 
-Download **MinecraftDungeons2WASD-0.1.0-beta-Windows-x64.zip**, extract everything, and run `DungeonsInputStudio.exe`. No Python required. The executable is unsigned. `SHA256SUMS.txt` contains checksums for both ZIPs.
+- Give native interactions priority over stationary melee automatically. Mouse-directed attacks and aiming remain intact; Root / Stand Still bindings are no longer paired with the primary button.
+- Retry temporary game-state failures without discarding applied settings or restoration records. Resume after loading when the required input objects are ready.
+- Add manual process selection with the same supported-build checks as automatic detection.
+- Improve title/gameplay controller detection and show an explicit status for unrecognized screens.
+- Save bounded, redacted diagnostics locally after failures; retain error history for manual export.
+- Clarify control overrides and add a reset to companion control defaults.
 
-This is the latest complete build, published as our first public **0.1 beta**, including all features developed through internal 0.4.0.
+## Updating
 
-## Included
+Close the previous companion and choose to restore original controls. Extract the entire new ZIP and run DungeonsInputStudio.exe. Complete the normal title-screen setup once. Keep Attack in place enabled and Original click behavior disabled for automatic interaction priority.
 
-- Native WASD, customizable keys, and conflict notices.
-- Attack-in-place, ground-click blocking, and interaction-approach options.
-- Accelerated, eased turning with customization and presets.
-- Optional Jump Slam assist and automatic binding detection.
-- Guided setup, live verification, and in-game reconnect when ready.
-- Original-control backups, restoration, and restore / keep / cancel on close.
-- Portable profiles and local diagnostics.
-- **Fixed repeated Working notices:** live counters still refresh; unchanged notices are logged once. New errors and genuine transitions remain visible.
+Temporary travel interruptions recover automatically. A restarted game requires applying settings for the new session. Return to title only when the app reports missing movement mappings.
 
-## Start here
+## Validation and compatibility
 
-First setup: **Title screen → Start companion → Apply settings → Load character**. Reconnect in gameplay when Ready to resume appears. Close older companions normally before upgrading so they restore before this release captures originals.
+47 automated tests pass, including 100 simulated travel-recovery cycles, bounded retry delays, new-process handling, and exact interaction-patch restoration. Automatic interaction behavior was confirmed by the user. The reported matchmaking disconnect and a co-op revive have not been independently reproduced; this remains a beta for the previously supported Windows x64 Steam build.
 
-## Scope and validation
-
-Windows x64, verified Steam build 1.1.1.0 only; unknown hashes are rejected. Single-player, one local player. Restore originals before multiplayer.
-
-27 automated tests and packaged UI checks pass. Read-only adapter checks passed during development; the game was closed during the final public-build probe, so that check could not be repeated. Earlier controls/smoothing were confirmed during gameplay; second-PC success was user-reported. New Jump Slam timing and reconnect/restoration still need interactive confirmation. Closing stops smoothing and Jump Slam even if bindings are left in place.
-
-See the [full README](https://github.com/BaeBaeFae/MinecraftDungeons2WASD#readme) for setup, settings, troubleshooting, restoration, supported hash, and privacy. Unofficial beta; no game code/assets included.
+No telemetry or runtime network connection. Diagnostics stay on the player's PC unless manually shared. The release includes the application, curated source, licenses, and SHA-256 checksums.

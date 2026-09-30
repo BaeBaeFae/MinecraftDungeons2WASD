@@ -1,22 +1,28 @@
 # Minecraft Dungeons II WASD Companion
 
-**Dungeons Input Studio · 0.1 beta** is a portable Windows companion for native keyboard movement, attack-in-place, configurable turning, and an optional Jump Slam assist.
+## What's new in 0.1.1 beta
 
-[Download 0.1 beta](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.0-beta) · [All releases](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases) · [Report a problem](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/issues)
+- Automatic recovery after temporary loading and object-state interruptions, preserving applied settings and undo records.
+- Automatic interaction priority: eligible interactions take precedence over stationary melee, with mouse-directed aiming preserved. No combat-time mode switch is needed.
+- Manual process selection, clearer screen detection, and local redacted diagnostics.
+
+**Dungeons Input Studio · 0.1.1 beta** is a portable Windows companion for native keyboard movement, attack-in-place, configurable turning, and an optional Jump Slam assist.
+
+[Download 0.1.1 beta](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.1-beta) · [All releases](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases) · [Report a problem](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/issues)
 
 An unofficial, experimental companion for **one verified Windows x64 Steam game build**. Not affiliated with Mojang, Microsoft, or the game's developers. No game code or assets are distributed here.
 
 ## Download and install
 
-1. Open the [0.1 beta release](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.0-beta).
-2. Download **MinecraftDungeons2WASD-0.1.0-beta-Windows-x64.zip**. The Source ZIP is for development.
+1. Open the [0.1.1 beta release](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.1-beta).
+2. Download **MinecraftDungeons2WASD-0.1.1-beta-Windows-x64.zip**. The Source ZIP is for development.
 3. Extract the entire ZIP. Keep `DungeonsInputStudio.exe` and `_internal` together.
 4. Run `DungeonsInputStudio.exe`. No Python installation or installer is required.
 
 The download is unsigned. Download only from this repository and optionally compare its SHA-256 with the release's `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\MinecraftDungeons2WASD-0.1.0-beta-Windows-x64.zip -Algorithm SHA256
+Get-FileHash .\MinecraftDungeons2WASD-0.1.1-beta-Windows-x64.zip -Algorithm SHA256
 ```
 
 Place the companion anywhere; it discovers the game without a fixed Steam library path. It does not need to be copied into the game folder.
@@ -44,7 +50,7 @@ Title is still needed if those mappings are missing, such as first setup or afte
 | Setting | Behavior |
 | --- | --- |
 | Keyboard movement | Native movement; four distinct letters or arrow keys. |
-| Attack in place | Pairs Root / Stand Still with the primary action. Shift can be assigned elsewhere. |
+| Attack in place | Gives native interactions priority over stationary melee. Mouse aiming and Root bindings are preserved. |
 | Disable ground click movement | Blocks held-click movement and movement toward the last released click. |
 | Walk to interactions yourself | Stops approach to distant chests/NPCs. Move into range, then interact. |
 | Smooth turning | Ramps turn speed up and eases down near the target direction. |
@@ -100,7 +106,11 @@ This restores **companion-owned changes**, not a full controls preset. Changes m
 
 Unknown builds are rejected before writes. Updates need adapter revalidation; changing the hash alone is not a fix. Other storefronts, operating systems, multiplayer, and split-screen are unsupported.
 
-Native WASD, clicks/interactions, Shift remapping, and smoothing were tested interactively. Second-PC success was user-reported. New Jump Slam timing and reconnect/restoration still need interactive confirmation. [VALIDATION.md](VALIDATION.md) distinguishes automated, read-only, and gameplay checks.
+Native WASD, clicks/interactions, Shift remapping, and smoothing were tested interactively. Second-PC success was user-reported. Automatic interaction behavior was user-confirmed. Recovery passed simulated fault tests; the exact matchmaking report has not been reproduced live. [VALIDATION.md](VALIDATION.md) distinguishes automated, read-only, and gameplay checks.
+
+## Process selection and diagnostics
+
+If automatic detection fails, use Game process > Refresh, select the game executable, and start the companion. Show all processes can help locate it. Manual selection never bypasses build validation. Failures save a bounded, redacted report at `%LOCALAPPDATA%\DungeonsInputStudio\diagnostics\last-session.json`; use Save diagnostics to export it. Nothing uploads automatically.
 
 ## Troubleshooting
 
@@ -141,7 +151,7 @@ Use Windows x64 and Python 3.12 with Tkinter. Runtime source uses the standard l
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements-build.txt
-python -m unittest -v test_app test_slam test_backup
+python -m unittest -v test_app test_slam test_backup test_recovery test_input_states test_interaction
 python app.py --ui-smoke ui-smoke.json
 python -m PyInstaller --noconfirm --clean --onedir --windowed --noupx --name DungeonsInputStudio app.py
 ```
@@ -154,7 +164,8 @@ Distribute the **entire** `dist/DungeonsInputStudio` folder with README, LICENSE
 
 ### Source overview
 
-- `app.py`: GUI and worker; live status and diagnostic notices are separate.
+- `app.py`, `worker.py`: GUI and recoverable connection worker; live status and diagnostic notices are separate.
+- `diagnostics.py`, `errors.py`: bounded redacted reports and transient error classification.
 - `guidance.py`: setup/recovery states.
 - `engine.py`, `ue.py`, `winmem.py`: exact-build adapter and validated process-data access.
 - `journal.py`, `control_backup.py`: guarded undo and named binding recovery.
@@ -166,6 +177,6 @@ The companion edits live data only. It does not patch executables/assets, inject
 
 ## Release history and license
 
-**0.1 beta** is the first public release. It includes the latest development features (previously numbered locally through 0.4.0) and the repeated-notice fix. Public numbering starts here; this is not the older internal 0.1 development build.
+**0.1.1 beta** adds automatic interaction priority, recovery, process selection, and local diagnostics. **0.1 beta** was the first public release.
 
 Code is [MIT licensed](LICENSE.txt). Bundled Python, Tcl/Tk, and PyInstaller retain their licenses; see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt).
