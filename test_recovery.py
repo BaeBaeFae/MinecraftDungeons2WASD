@@ -6,7 +6,7 @@ import tempfile
 import time
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 from diagnostics import Recorder, redact
 from errors import TransientGameState, ProcessSelectionError
 from model import Settings
@@ -15,6 +15,77 @@ from worker import Worker
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_error_frames_include_context_without_paths_or_source(self):
+        with tempfile.TemporaryDirectory() as folder:
+            recorder = Recorder(folder)
+            try:
+                raise TransientGameState('interrupted')
+            except TransientGameState as exc:
+                recorder.error(exc, 'connection_update')
+            frames = recorder.report()['recent_errors'][0]['frames']
+            self.assertEqual(frames[-1]['module'], 'test_recovery.py')
+            self.assertEqual(frames[-1]['function'], 'test_error_frames_include_context_without_paths_or_source')
+            self.assertEqual(set(frames[-1]), {'module', 'function', 'line'})
+            self.assertNotIn(str(Path(__file__).parent), json.dumps(frames))
+
+    def test_same_character_recovers_with_real_engine_and_slam(self):
+        # Keep the character and its old guard valid, exactly as when a brief
+        # input-tree interruption occurs without changing maps or respawning.
+        import struct
+        from engine import Engine
+        for slam_enabled in (True, False):
+            with self.subTest(jump_slam=slam_enabled), tempfile.TemporaryDirectory() as folder:
+                e = Engine.__new__(Engine)
+                e.settings = replace(Settings(), jump_slam=slam_enabled)
+                e.local, e.pc, e.pawn, e.move = 10000, 20000, 30000, 40000
+                e.local_guard = e.move_guard = lambda: True
+                e.last_refresh = time.monotonic()
+                e.conflicts = []
+                e.slam = types.SimpleNamespace(error='', count=216)
+                e.slam_key, e.slam_problem = 'ThumbMouseButton', ''
+                e.journal = Mock()
+                e.capture_controls = Mock()
+                e.prepare_context = Mock()
+                e.patch_profile = Mock()
+                e.patch_tree = Mock()
+                e.flag = Mock()
+                e.release_inputs = Mock()
+                e.location = lambda: 'gameplay'
+                e.profile_rows = lambda: [('HeavyJumpAttack', 60000, lambda: True)]
+                e.movement_keys = lambda *args: set('WASD')
+                offsets = {'PlayerInput': 64, 'EnhancedActionMappings': 80,
+                           'CharacterMovement': 96, 'RotationRate': 0x2d0,
+                           'MovementMode': 128, 'Mappings': 144}
+                def offset(obj, key):
+                    if not obj:
+                        raise TransientGameState('Cannot read current game state (Windows error 299).')
+                    return offsets[key]
+                e.u = Mock()
+                e.u.offset.side_effect = offset
+                e.u.u64.side_effect = {10048: 20000, 20000+0x2e8: 30000,
+                                      20064: 50000, 30096: 40000}.__getitem__
+                e.u.class_name.return_value = 'PlayerCharacterMovementComponent'
+                e.u.read.side_effect = lambda address, size: struct.pack('<ddd', 0, 900, 0) if size == 24 else b'keybytes'
+                e.u.guard.return_value = lambda: True
+                e.u.name_at.return_value = 'ThumbMouseButton'
+                w = Worker(queue.Queue(), folder)
+                w.engine = e
+                w.enabled = w.configured = True
+                owner, settings = e.journal, e.settings
+                for _ in range(3):
+                    w.recover(TransientGameState('Object changed before write; update cancelled.'), 'connection_update')
+                    e.sync()  # Production sync and sync_slam; no Apply/configure.
+                    self.assertEqual(e.move, 40000)
+                    self.assertEqual(e.phase, 'active')
+                    self.assertTrue(e.move_guard())
+                    self.assertIs(e.journal, owner)
+                    self.assertIs(e.settings, settings)
+                    self.assertTrue(w.configured)
+                e.journal.restore_where.assert_not_called()
+                if slam_enabled:
+                    self.assertEqual(e.slam_mode_offset, 128)
+                    self.assertTrue(e.slam_binding_guard())
+
     def test_repeated_travel_recovery_preserves_configuration_and_undo_owner(self):
         # Drive the production lifecycle with a simulated clock, without a game.
         world = {'location': 'gameplay', 'generation': 1, 'read_fault': False}

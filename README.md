@@ -1,10 +1,10 @@
 # Minecraft Dungeons II WASD Companion
 
-## What's new in 0.1.2 beta
+## What's new in 0.1.3 beta
 
-- Supports the October 1 Steam game update while retaining the previous verified build.
-- Optional GitHub update checks on launch, including beta releases, with verified downloads and a restore-before-restart workflow.
-- Updated game controls were confirmed working by the user.
+- Fix automatic recovery getting stuck after a temporary interruption when the same character remains loaded. Movement and turning are reacquired without another Apply.
+- Fix repeated recovery read errors with Jump Slam enabled, while preserving settings and restoration records.
+- Add filename, function, and line context to local diagnostics without including full paths, source text, or local variables.
 
 ## Application updates
 
@@ -22,23 +22,23 @@ Versions before 0.1.2 need one manual download to gain the updater. Source runs 
 - Automatic interaction priority: eligible interactions take precedence over stationary melee, with mouse-directed aiming preserved. No combat-time mode switch is needed.
 - Manual process selection, clearer screen detection, and local redacted diagnostics.
 
-**Dungeons Input Studio · 0.1.2 beta** is a portable Windows companion for native keyboard movement, attack-in-place, configurable turning, and an optional Jump Slam assist.
+**Dungeons Input Studio · 0.1.3 beta** is a portable Windows companion for native keyboard movement, attack-in-place, configurable turning, and an optional Jump Slam assist.
 
-[Download 0.1.2 beta](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.2-beta) · [All releases](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases) · [Report a problem](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/issues)
+[Download 0.1.3 beta](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.3-beta) · [All releases](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases) · [Report a problem](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/issues)
 
 An unofficial, experimental companion for **verified Windows x64 Steam game builds**. Not affiliated with Mojang, Microsoft, or the game's developers. No game code or assets are distributed here.
 
 ## Download and install
 
-1. Open the [0.1.2 beta release](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.2-beta).
-2. Download **MinecraftDungeons2WASD-0.1.2-beta-Windows-x64.zip**. The Source ZIP is for development.
+1. Open the [0.1.3 beta release](https://github.com/BaeBaeFae/MinecraftDungeons2WASD/releases/tag/v0.1.3-beta).
+2. Download **MinecraftDungeons2WASD-0.1.3-beta-Windows-x64.zip**. The Source ZIP is for development.
 3. Extract the entire ZIP. Keep `DungeonsInputStudio.exe` and `_internal` together.
 4. Run `DungeonsInputStudio.exe`. No Python installation or installer is required.
 
 The download is unsigned. Download only from this repository and optionally compare its SHA-256 with the release's `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\MinecraftDungeons2WASD-0.1.2-beta-Windows-x64.zip -Algorithm SHA256
+Get-FileHash .\MinecraftDungeons2WASD-0.1.3-beta-Windows-x64.zip -Algorithm SHA256
 ```
 
 Place the companion anywhere; it discovers the game without a fixed Steam library path. It does not need to be copied into the game folder.

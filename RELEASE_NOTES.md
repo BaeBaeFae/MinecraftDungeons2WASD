@@ -1,11 +1,9 @@
-# 0.1.2 beta
+# 0.1.3 beta
 
-- Support the October 1 Steam executable with a separate verified address profile, retaining previous-build support.
-- Resolve movement-context tags by native name rather than relocated global pointers.
-- Add optional GitHub release checks on launch and a manual Check updates button, including published beta releases.
-- Download and verify updates before offering Restart & update. Restore game controls before handoff; keep the original application available as a fallback.
-- Preserve settings and backups. No diagnostics or game data are uploaded; update checks introduce an optional GitHub network connection.
+- Fix automatic recovery getting stuck after a temporary interruption when the same character remains loaded. The companion now reacquires its movement reference without requiring Apply settings.
+- Fix the resulting repeated read errors with Jump Slam enabled and inactive turning with it disabled. Existing settings and restoration records are preserved.
+- Improve local diagnostics with bounded filename, function, and line context, without full paths, source text, or local variables.
 
-Updated game controls were user-confirmed. Automated and packaged validation results are documented in VALIDATION.md. Microsoft Store compatibility remains unverified. Older companion versions need one manual download to acquire this updater.
+All 62 automated tests and the packaged GUI smoke check pass. A regression test reproduces the prior failure through the real engine synchronization code and verifies recovery with Jump Slam both enabled and disabled. The original live-game interruption has not been reproduced.
 
-60 automated tests pass. Packaged GUI checks pass. A real GitHub release download was verified and staged successfully without activation.
+Version 0.1.2 users can use Check updates, Download update, then Restart & update. Earlier versions need a manual download. Support for both previously verified Steam builds is retained; Microsoft Store compatibility remains unverified.
