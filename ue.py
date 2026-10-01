@@ -1,4 +1,4 @@
-"""Validated reflection and object discovery for the single supported game build."""
+"""Validated reflection and object discovery for the selected supported game build."""
 import struct
 from errors import TransientGameState
 
@@ -11,6 +11,7 @@ class UE:
     def __init__(self, process):
         self.p = process
         self.base = process.base
+        self.build = process.build
         self.read = process.read
         self.u64 = process.u64
         self.names = {0: 'None'}
@@ -20,10 +21,10 @@ class UE:
 
     def fname(self, index, number=0):
         if index not in self.names:
-            block_count = struct.unpack('<I', self.read(self.base + 0xBDC5048, 4))[0]
+            block_count = struct.unpack('<I', self.read(self.base + self.build.name_pool + 8, 4))[0]
             if index >> 16 > block_count:
                 raise StaleState('Name no longer valid.')
-            block = self.u64(self.base + 0xBDC5050 + (index >> 16) * 8)
+            block = self.u64(self.base + self.build.name_pool + 16 + (index >> 16) * 8)
             entry = block + (index & 65535) * 2
             head = struct.unpack('<H', self.read(entry, 2))[0]
             length = head >> 6
@@ -60,8 +61,8 @@ class UE:
 
     def identity(self, obj):
         index = struct.unpack('<i', self.read(obj + 12, 4))[0]
-        chunks = self.u64(self.base + 0xBEA8C00)
-        count = struct.unpack('<i', self.read(self.base + 0xBEA8C14, 4))[0]
+        chunks = self.u64(self.base + self.build.objects)
+        count = struct.unpack('<i', self.read(self.base + self.build.objects + 20, 4))[0]
         if not 0 <= index < count:
             raise StaleState('Object has expired.')
         item = self.u64(chunks + (index >> 16) * 8) + (index & 65535) * 24
@@ -99,8 +100,8 @@ class UE:
 
     def refresh(self):
         index = {}
-        chunks = self.u64(self.base + 0xBEA8C00)
-        count = struct.unpack('<i', self.read(self.base + 0xBEA8C14, 4))[0]
+        chunks = self.u64(self.base + self.build.objects)
+        count = struct.unpack('<i', self.read(self.base + self.build.objects + 20, 4))[0]
         if not 0 < count < 2000000:
             raise StaleState('Object registry is not ready.')
         for chunk in range((count + 65535) // 65536):
@@ -168,11 +169,11 @@ class UE:
 
     def key_name(self, key):
         if not self.name_ids:
-            block, cursor = struct.unpack('<II', self.read(self.base + 0xBDC5048, 8))
+            block, cursor = struct.unpack('<II', self.read(self.base + self.build.name_pool + 8, 8))
             if block > 1024:
                 raise StaleState('Invalid name registry.')
             for bi in range(block + 1):
-                data = self.read(self.u64(self.base + 0xBDC5050 + bi*8), cursor if bi == block else 131072)
+                data = self.read(self.u64(self.base + self.build.name_pool + 16 + bi*8), cursor if bi == block else 131072)
                 pos = 0
                 while pos + 2 <= len(data):
                     head = struct.unpack_from('<H', data, pos)[0]

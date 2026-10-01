@@ -1,3 +1,15 @@
+# Application updater validation
+
+60 automated tests pass across the complete suite. Updater coverage includes beta ordering, downgrade prevention, incomplete/draft release exclusion, trusted HTTPS redirects, checksum rejection, archive path traversal/link/duplicate rejection, side-by-side extraction, runtime-file integrity checks, saved opt-out, repeated stop acknowledgments, and restoration-warning propagation.
+
+A real GitHub integration check found the published 0.1.1 beta when simulating an older installed version, downloaded its Windows ZIP, verified its published SHA-256 and size, and staged all 993 files. It was not activated and no game controls were changed. The current 0.1.2 check correctly reported no newer release. Source and packaged GUI smoke checks pass without contacting the network.
+
+# October 1 update — 0.1.2 beta
+
+51 tests pass, including independent old/new build selection, per-build runtime signature verification, input-gate target checks, and unknown-build rejection. New globals were located by comparing references in the old and updated running executable, then verified against read-only runtime data. Twenty-seven relevant reflected type layouts match the previous build. Read-only title setup and camp configuration planning pass, including the native interaction condition/binding guards and movement/rotation layout validation. The user subsequently confirmed the controls working after normal title setup.
+
+The Microsoft Store build remains unverified; selecting a process does not bypass the fingerprint gate. No new features are introduced by this compatibility update.
+
 # Validation — 0.1.1 beta
 
 47 automated tests pass on Windows with Python 3.12. Coverage includes movement settings, turning dynamics, input cleanup, guarded restoration, profile persistence, process selection, diagnostics redaction, and automatic interaction priority.
