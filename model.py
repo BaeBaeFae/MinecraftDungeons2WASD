@@ -4,7 +4,7 @@ import json
 import math
 from pathlib import Path
 
-VERSION = '0.1.2-beta'
+VERSION = '0.1.3-beta'
 KEYS = tuple('ABCDEFGHIJKLMNOPQRSTUVWXYZ') + ('Up', 'Down', 'Left', 'Right')
 
 

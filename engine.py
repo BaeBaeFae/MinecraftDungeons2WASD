@@ -424,7 +424,10 @@ class Engine:
         movement = self.movement_keys(pi, mappings_offset) if self.settings.wasd else set()
         self.patch_tree(pc)
         self.flag(self.settings.wasd and bool(movement))
-        if pc != self.pc or pawn != self.pawn or not self.move_guard():
+        # Recovery suspends updates by clearing move, even when the same
+        # character and its identity guard remain valid. Reacquire in that case
+        # too, before Jump Slam or turning can use the movement component.
+        if not self.move or pc != self.pc or pawn != self.pawn or not self.move_guard():
             move = u.u64(pawn + u.offset(pawn, 'CharacterMovement'))
             if u.class_name(move) != 'PlayerCharacterMovementComponent' or u.offset(move, 'RotationRate') != 0x2d0:
                 raise StaleState('Unknown character movement layout.')

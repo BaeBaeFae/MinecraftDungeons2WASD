@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import time
+import traceback
 
 
 def redact(value):
@@ -42,6 +43,11 @@ class Recorder:
         self.total_errors += 1
         record = redact({'at': datetime.now(timezone.utc).isoformat(), 'operation': operation,
                          'type': type(exc).__name__, 'message': str(exc)})
+        # Function/line context distinguishes failing recovery stages without
+        # exporting source lines, local variables, or filesystem paths.
+        record['frames'] = [{'module': Path(frame.filename).name,
+                             'function': frame.name, 'line': frame.lineno}
+                            for frame in traceback.extract_tb(exc.__traceback__)[-8:]]
         self.errors.append(record)
         self.event('error', **record)
 

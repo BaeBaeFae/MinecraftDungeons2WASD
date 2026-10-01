@@ -1,3 +1,9 @@
+# Recovery regression — 0.1.3 beta
+
+All 62 automated tests pass. The Windows executable builds successfully and its packaged GUI smoke check passes without attaching to the game.
+
+The real Engine.sync and Jump Slam synchronization were exercised after Worker.recover clears the movement reference while the same character and its identity guard remain valid. Before the fix, Jump Slam enabled reproduced a read error on every retry; disabled left the movement reference empty. Both cases now reacquire the component across repeated interruptions without Apply, retaining settings and the restoration journal. Diagnostics now include bounded filename/function/line context without source text, local variables, or full paths. This reproduces a defect consistent with the submitted report; the original in-game interruption itself has not been reproduced.
+
 # Application updater validation
 
 60 automated tests pass across the complete suite. Updater coverage includes beta ordering, downgrade prevention, incomplete/draft release exclusion, trusted HTTPS redirects, checksum rejection, archive path traversal/link/duplicate rejection, side-by-side extraction, runtime-file integrity checks, saved opt-out, repeated stop acknowledgments, and restoration-warning propagation.
