@@ -160,6 +160,11 @@ class Worker(threading.Thread):
             self.configuring = True
             self.next_sync = 0
             self.publish('applying')
+        elif cmd == 'prepare_update':
+            self.enabled = False
+            warning = self.detach()
+            self.publish('restore_warning' if warning else 'stopped', warning)
+            self.events.put(('update_restored', warning))
         elif cmd in ('stop', 'restore', 'close', 'close_keep'):
             self.enabled = False
             if cmd in ('restore', 'close') and self.engine is None:
@@ -255,14 +260,14 @@ class Worker(threading.Thread):
                     try:
                         self.command(cmd, value, Engine, Process, find_game)
                     except (TransientGameState, StaleState) as exc:
-                        if cmd in ('close', 'close_keep', 'restore', 'stop'):
+                        if cmd in ('close', 'close_keep', 'restore', 'stop', 'prepare_update'):
                             self.fail(exc, cmd)
                             self.events.put(('close_failed', str(exc)))
                         else:
                             self.recover(exc, cmd)
                     except Exception as exc:
                         self.fail(exc, cmd)
-                        if cmd in ('close', 'close_keep'): self.events.put(('close_failed', str(exc)))
+                        if cmd in ('close', 'close_keep', 'prepare_update'): self.events.put(('close_failed', str(exc)))
                 if not self.running: break
                 now = time.monotonic()
                 dt, previous = now-previous, now

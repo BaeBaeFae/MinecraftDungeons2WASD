@@ -8,7 +8,6 @@ from ue import UE, StaleState
 
 
 class Engine:
-    FLAG = 0xC068610
 
     def __init__(self, process, settings):
         self.p, self.settings = process, settings.validate().effective()
@@ -209,7 +208,7 @@ class Engine:
     def flag(self, enabled):
         if not enabled and (self.settings.wasd or not self.move):
             self.release_inputs()
-        address = self.p.base + self.FLAG
+        address = self.p.base + self.p.build.wasd_flag
         if self.p.read(address, 1) not in (b'\0', b'\1'):
             raise StaleState('Unexpected feature flag value.')
         self.journal.set(address, bytes([bool(enabled)]), self.p.alive, original=b'\0')
@@ -221,16 +220,14 @@ class Engine:
         a = u.u64(gi + 0x30)
         cache = u.u64(a + 0x70)
         root, count = u.array(cache + 0x300, 10000)
-        player_tag = u.read(u.u64(u.base + 0xBB3E9C0), 8)
-        context_tag = u.read(u.u64(u.base + 0xBB3E108), 8)
         for i in range(count):
             outer = root + i*96
-            if u.read(outer, 8) != player_tag:
+            if u.name_at(outer) != 'SW.Player':
                 continue
             inner, n = u.array(outer + 8, 10000)
             for j in range(n):
                 entry = inner + j*40
-                if u.read(entry, 8) != context_tag:
+                if u.name_at(entry) != 'SW.InstancedStruct.InputMappingContexts':
                     continue
                 st = u.u64(entry + 8)
                 if u.name(st) != 'MappingContexts':
@@ -243,6 +240,7 @@ class Engine:
                         continue
                     checks = [(gi+0x30, struct.pack('<Q', a)), (a+0x70, struct.pack('<Q', cache)),
                               (cache+0x300, struct.pack('<Q', root)),
+                              (outer, u.read(outer, 8)), (entry, u.read(entry, 8)),
                               (outer+8, struct.pack('<Q', inner)), (entry+16, struct.pack('<Q', row)),
                               (row, struct.pack('<Q', records)), (record+16, u.read(record+16, 8))]
                     guard = u.guard(gi, checks)
@@ -494,7 +492,7 @@ class Engine:
         skipped += more_skipped
         # Keep Play compatible even when attaching to an earlier experimental session.
         if self.p.alive() and self.p.writable:
-            self.p.write(self.p.base+self.FLAG, b'\0')
+            self.p.write(self.p.base+self.p.build.wasd_flag, b'\0')
         return restored, skipped
 
     def diagnostics(self):

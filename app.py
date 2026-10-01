@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import queue
+import sys
 import threading
 import time
 import traceback
@@ -62,6 +63,11 @@ def gui(smoke=None, start_immediately=False):
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
         pass
+    import updater
+    update_release = None
+    update_ready = None
+    update_pending = None
+    update_busy = False
     root = tk.Tk()
     root.title('Dungeons Input Studio')
     root.geometry('860x920')
@@ -116,6 +122,53 @@ def gui(smoke=None, start_immediately=False):
                            font=('Segoe UI', 10, 'bold'), anchor='w', justify='left', wraplength=745)
     status_next.pack(fill='x')
     ttk.Label(frame, textvariable=pending_text, foreground='#ffd28a', wraplength=745).pack(fill='x', pady=(0, 6))
+    updates_row = ttk.Frame(frame)
+    updates_row.pack(fill='x', pady=(0, 8))
+    update_status = tk.StringVar(value='Updates: not checked')
+    ttk.Label(updates_row, textvariable=update_status, wraplength=500,
+              foreground='#a8bac8').pack(side='left', fill='x', expand=True)
+    def check_updates():
+        nonlocal update_busy
+        if update_busy or closing:
+            return
+        update_busy = True
+        update_status.set('Checking GitHub for updates…')
+        def work():
+            try: events.put(('update_checked', updater.check(VERSION)))
+            except Exception: events.put(('update_error', 'Could not check GitHub. You can keep playing and retry later.'))
+        threading.Thread(target=work, daemon=True).start()
+    def download_update():
+        nonlocal update_busy
+        if update_busy or closing or not update_release:
+            return
+        if not getattr(sys, 'frozen', False):
+            messagebox.showinfo('Packaged app required', 'Install updates from the packaged Windows application.', parent=root)
+            return
+        update_busy = True
+        update_status.set('Downloading and verifying update… You can keep playing.')
+        release = dict(update_release)
+        def work():
+            try: events.put(('update_ready', updater.stage_update(release, DATA)))
+            except Exception: events.put(('update_error', 'Update download or verification failed. Current app is unchanged; retry later.'))
+        threading.Thread(target=work, daemon=True).start()
+    def restart_updated():
+        nonlocal closing, update_pending, worker
+        if closing or update_ready is None:
+            return
+        update_pending = update_ready
+        closing = True
+        if not worker.is_alive():
+            worker = Worker(events)
+            worker.start()
+        # Stop restores only this attachment; updating an unsupported game must
+        # not try to attach to it just to close the companion.
+        worker.commands.put(('prepare_update', None))
+        update_status.set('Restoring controls before restarting…')
+    ttk.Button(updates_row, text='Check updates', command=check_updates).pack(side='right')
+    update_button = ttk.Button(updates_row, text='Download update', command=download_update)
+    update_button.pack(side='right', padx=6)
+    update_button.state(['disabled'])
+
     actions = ttk.Frame(frame)
     actions.pack(fill='x', pady=(0, 18))
     events = queue.Queue()
@@ -148,6 +201,8 @@ def gui(smoke=None, start_immediately=False):
 
     def apply(start=False):
         nonlocal active, worker
+        if closing:
+            return
         try:
             value = collect()
             value.save(DATA/'settings.json')
@@ -174,6 +229,8 @@ def gui(smoke=None, start_immediately=False):
 
     def restore_originals():
         nonlocal worker
+        if closing:
+            return
         if not worker.is_alive():
             worker = Worker(events)
             worker.start()
@@ -212,6 +269,15 @@ def gui(smoke=None, start_immediately=False):
             canvas, body = pages[notebook.select()]
             canvas.yview_scroll(-int(event.delta/120), 'units')
     root.bind('<MouseWheel>', scroll_page)
+    check_on_launch = tk.BooleanVar(value=updater.enabled(DATA))
+    def save_update_preference():
+        try: updater.set_enabled(DATA, check_on_launch.get())
+        except OSError:
+            messagebox.showerror('Preference not saved', 'Could not save the update preference.', parent=root)
+    ttk.Checkbutton(setup, text='Check GitHub for updates on launch (includes beta releases)',
+                    variable=check_on_launch, command=save_update_preference).pack(anchor='w', pady=(0, 4))
+    ttk.Label(setup, text='Optional update checks contact GitHub. Downloads require your click. No game data, diagnostics, or settings are uploaded.',
+              wraplength=685, foreground='#91a6b8').pack(anchor='w', pady=(0, 12))
     process_row = ttk.LabelFrame(setup, text='Game process', padding=10)
     process_row.pack(fill='x', pady=(0, 14))
     process_choice = tk.StringVar(value='Auto detect')
@@ -378,7 +444,7 @@ def gui(smoke=None, start_immediately=False):
         '3. Click Apply settings, then load your character in the game.\n'
         '4. Wait for the green Working status. Rebind any reported conflicts.\n\n'
         'Connection failures save a local, redacted report automatically. After an issue, use Save diagnostics to include the recent error history, controller class, input tree, and retry attempts. No upload occurs.\n\n'
-        'Supported: Windows x64, the verified Steam executable for build 1.1.1.0. '
+        'Supported: Windows x64, the verified original and October 1 Steam executables. '
         'Other game builds are rejected. This beta has been tested on one PC in single-player; '
         'a second PC has also been reported working by the user. Stop & restore before joining or hosting multiplayer.\n\n'
         'Changes are made to live data. No game executable or asset files are modified. '
@@ -391,7 +457,7 @@ def gui(smoke=None, start_immediately=False):
     log = tk.Text(help_tab, height=8, bg='#0c1218', fg='#a9bbca', insertbackground='white',
                   relief='flat', font=('Consolas', 9), wrap='word')
     log.pack(fill='both', expand=True, pady=14)
-    log.insert('end', 'Diagnostics stay on this PC. No telemetry or network connection.\n')
+    log.insert('end', 'Diagnostics stay on this PC. No telemetry. Optional update checks contact GitHub.\n')
     if load_error:
         log.insert('end', load_error + '\n')
     bottom = ttk.Frame(frame)
@@ -453,14 +519,40 @@ def gui(smoke=None, start_immediately=False):
         variable.trace_add('write', changed)
     render_guide(guide('idle'))
     def pump():
-        nonlocal active, applied_values, closing, process_list
+        nonlocal active, applied_values, closing, process_list, update_busy, update_release, update_ready, update_pending
         while True:
             try:
                 kind, value = events.get_nowait()
             except queue.Empty:
                 break
-            if kind == 'guide':
+            if kind == 'update_checked':
+                update_busy = False
+                update_release = value
+                update_status.set('Update available: '+value['version'] if value else 'No newer published Windows release.')
+                if value:
+                    update_button.configure(text='Download update', command=download_update)
+                    update_button.state(['!disabled'])
+            elif kind == 'update_ready':
+                update_busy = False
+                update_ready = value
+                update_status.set('Update verified. Restart when ready; controls will be restored first.')
+                update_button.configure(text='Restart & update', command=restart_updated)
+                update_button.state(['!disabled'])
+            elif kind == 'update_error':
+                update_busy = False
+                update_status.set(value)
+            elif kind == 'guide':
                 render_guide(value)
+                if value.stage == 'stopped' and update_ready is not None and update_pending is None:
+                    update_button.state(['!disabled'])
+            elif kind == 'update_restored' and update_pending is not None:
+                if value:
+                    update_pending = None
+                    closing = False
+                    update_button.state(['disabled'])
+                    update_status.set('Update paused: resolve the restoration warning, then retry Restart & update.')
+                else:
+                    worker.commands.put(('close_keep', None))
             elif kind == 'processes':
                 process_list = value
                 show_processes()
@@ -486,6 +578,8 @@ def gui(smoke=None, start_immediately=False):
                     messagebox.showerror('Could not save diagnostics', str(exc), parent=root)
             elif kind == 'close_failed':
                 closing = False
+                update_pending = None
+                if update_ready is not None: update_button.state(['disabled'])
                 messagebox.showwarning('Restoration needs attention', value + '\nThe companion has stayed open. Retry Restore original controls or restart the game.', parent=root)
             elif kind == 'closed' and closing:
                 root.destroy()
@@ -495,6 +589,8 @@ def gui(smoke=None, start_immediately=False):
             log.see('end')
         root.after(100, pump)
     root.after(100, pump)
+    if not smoke and check_on_launch.get():
+        root.after(1200, check_updates)
     if start_immediately and not smoke:
         root.after(300, lambda: apply(True))
     if smoke:
@@ -534,6 +630,10 @@ def gui(smoke=None, start_immediately=False):
         worker.commands.put(('close', None))
         worker.join(timeout=10)
     k.CloseHandle(mutex)
+    if update_pending is not None:
+        try: updater.activate(update_pending, DATA, VERSION)
+        except Exception:
+            messagebox.showerror('Update could not start', 'Your original application remains available. Open it again and retry the update.')
 
 
 if __name__ == '__main__':
@@ -541,7 +641,17 @@ if __name__ == '__main__':
     parser.add_argument('--probe', help='Write a read-only compatibility/discovery report; do not modify the game.')
     parser.add_argument('--ui-smoke', help='Open and structurally check the GUI without attaching to the game.')
     parser.add_argument('--start', action='store_true', help='Start the companion after opening its window.')
+    parser.add_argument('--no-update-handoff', action='store_true', help='Run this copy instead of a previously installed newer version.')
     args = parser.parse_args()
+    if getattr(sys, 'frozen', False) and not (args.probe or args.ui_smoke or args.no_update_handoff):
+        import updater
+        preferred = updater.preferred_update(DATA, VERSION)
+        if preferred and preferred.resolve() != Path(sys.executable).resolve():
+            try:
+                updater.launch(preferred)
+                raise SystemExit(0)
+            except OSError:
+                pass
     if args.probe:
         probe(args.probe)
     else:

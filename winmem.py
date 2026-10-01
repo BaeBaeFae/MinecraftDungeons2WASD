@@ -4,7 +4,7 @@ from ctypes import wintypes as w
 import hashlib
 from pathlib import Path
 import struct
-from model import BUILD_HASH
+from builds import select_build
 from errors import TransientGameState, ProcessSelectionError
 
 k = c.WinDLL('kernel32', use_last_error=True)
@@ -104,16 +104,15 @@ class Process:
         self.pid, self.base, self.path = found
         with self.path.open('rb') as source:
             self.hash = hashlib.file_digest(source, 'sha256').hexdigest()
-        if self.hash != BUILD_HASH:
-            raise RuntimeError(f'Unsupported game build ({self.hash[:12]}). No changes made.')
+        self.build = select_build(self.hash)
         self.handle = checked(k.OpenProcess(0x438 if writable else 0x410, False, self.pid),
                               'Cannot open game; run both apps at the same permission level')
         self.writable = writable
         try:
             expected = b'EFeature::WASD_Inputs\0'
-            if self.read(self.base + 0x9D6CD80, len(expected)) != expected:
+            if self.read(self.base + self.build.feature_name, len(expected)) != expected:
                 raise RuntimeError('Runtime build signature did not match.')
-            if self.read(self.base + 0x63B936B, 9) != bytes.fromhex('80 3d 9e f2 ca 05 00 74 5a'):
+            if self.read(self.base + self.build.input_gate, len(self.build.input_bytes)) != self.build.input_bytes:
                 raise RuntimeError('Input code differs from the supported original build.')
         except Exception:
             self.close()
